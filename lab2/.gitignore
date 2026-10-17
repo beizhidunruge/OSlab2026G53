@@ -1,0 +1,7 @@
+_local/
+code/bin/
+code/obj/
+code/.qemu.out
+code/.gdb.in
+report/member-a/
+tools/member_a/__pycache__/
