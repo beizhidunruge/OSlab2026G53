@@ -1,0 +1,5 @@
+_local/
+code/bin/
+code/obj/
+code/.qemu.out
+code/.gdb.in
