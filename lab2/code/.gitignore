@@ -1,0 +1,4 @@
+bin/
+obj/
+.qemu.out
+.gdb.in

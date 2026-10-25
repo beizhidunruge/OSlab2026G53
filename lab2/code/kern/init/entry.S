@@ -25,10 +25,24 @@ kern_entry:
     li      t1, 8 << 60
     # 将刚才计算出的预设三级页表物理页号附加到 satp 中
     or      t0, t0, t1
+    # lab2 startup compatibility 2414034:
+    # The low physical PC is NOT mapped by the root's sole high-half leaf.
+    # Route the first instruction-page fault after satp to the high VA label.
+    lui     t2, %hi(paging_enabled)
+    addi    t2, t2, %lo(paging_enabled)
+    csrw    stvec, t2
     # 将算出的 t0(即新的MODE|页表基址物理页号) 覆盖到 satp 中
     csrw    satp, t0
     # 使用 sfence.vma 指令刷新 TLB
     sfence.vma
+    # If an emulator finishes a previously translated low-address block,
+    # explicitly relocate before clearing the temporary trap vector.
+    jr t2
+    .balign 4
+    .global paging_enabled
+paging_enabled:
+    sfence.vma
+    csrw stvec, zero
     # 从此，我们给内核搭建出了一个完美的虚拟内存空间！
     #nop # 可能映射的位置有些bug。。插入一个nop
     
