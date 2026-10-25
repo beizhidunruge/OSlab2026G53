@@ -1,8 +1,0 @@
-{
-  "best-fit": "PASS",
-  "grade": "20/20",
-  "buddy": "PASS",
-  "buddy-illegal-1": "EXPECTED_ASSERT",
-  "buddy-illegal-2": "EXPECTED_ASSERT",
-  "buddy-illegal-3": "EXPECTED_ASSERT"
-}

@@ -1,38 +1,40 @@
-# Lab2 提示词与规格汇编（成员 A、B、C）
+# Lab2 提示词与规格汇编
 
-本文按模块保留三人的实际材料，用于最终报告引用，不是一条应同时执行的组合指令。A 提供的是实施规格和真实协作轨迹，B 提供模块实现提示词，C 的两份提示词从其原报告四反引号区块中完整提取；没有替任何成员补造未发生的对话。
+本文按模块保留三人的实际材料，用于最终报告引用，不是一条应同时执行的组合指令。丁欣怡提供的是实施规格和真实协作轨迹，贺翰林提供 Best-Fit 模块实现提示词，刘泽民的两份提示词从其原报告四反引号区块中完整提取；没有替任何成员补造未发生的对话。本次整理仅规范人员称呼与路径引用，不改变实验规格，也不将原有材料重写为其他提示词模板。
 
-代码路径说明：最终工程以 `lab2/code/` 为源码根目录。C 原分支将源码直接放在 `lab2/`，下方原提示词中的 `kern/mm/` 按其当时工程理解，未为迎合最终路径倒改原文。
+代码路径说明：最终工程以 `lab2/code/` 为源码根目录，从本文位置可通过 [`../code/`](../code/) 访问。Best-Fit 提示词以 `lab2/` 为相对路径根目录，其中 `code/` 指源码目录；刘泽民原分支将源码直接放在 `lab2/`，其原提示词中的 `kern/mm/` 以当时源码根目录为准，对应最终工程的 `code/kern/mm/`。下文保留各提示词原有的功能范围。
 
-| 材料 | 原始文件 |
+| 负责人 | 材料 |
 | --- | --- |
-| A：初始化和调试规格、实际协作记录 | [spec-and-prompts.md](member-a/spec-and-prompts.md) |
-| B：Best-Fit 模块提示词 | [prompt_best_fit.md](prompt_best_fit.md) |
-| C：Buddy 实现提示词 | [prompt_buddy_implementation.md](member-c/prompt_buddy_implementation.md) |
-| C：Buddy 测试提示词 | [prompt_buddy_tests.md](member-c/prompt_buddy_tests.md) |
+| 丁欣怡（2414034） | [初始化和调试规格、实际协作记录](#initialization-prompts) |
+| 贺翰林（2412591） | [Best-Fit 模块提示词](#best-fit-prompt) |
+| 刘泽民（2412604） | [Buddy 实现提示词](#buddy-implementation-prompt) |
+| 刘泽民（2412604） | [Buddy 测试提示词](#buddy-test-prompt) |
 
-最终报告见 [实验报告.md](实验报告.md)，各模块章节已嵌入对应提示词全文。B 的后续接入和本次编译开关属于集成操作，不倒写进原始模块提示词。
+最终报告见 [report.md](report.md)。Best-Fit 的后续接入和最终编译开关属于集成操作，不倒写进原始模块提示词。
 
-## 一、成员 A：初始化和调试规格及协作记录
+<a id="initialization-prompts"></a>
+
+## 一、丁欣怡：初始化和调试规格及协作记录
 
 ````markdown
-# 成员 A：规格与真实 AI 协作记录（2414034）
+# 丁欣怡：规格与真实 AI 协作记录（2414034）
 
 ## 来源与边界
 
-任务来自用户：访问 `http://oslab.mobisys.top/lab2026/_book`，结合《Lab2 TODO、三人分工与开展说明》完成成员 A 全部工作；随后提供学号 `2414034`。
+任务来自用户：访问 `http://oslab.mobisys.top/lab2026/_book`，结合《Lab2 TODO、三人分工与开展说明》完成丁欣怡负责的全部工作；随后提供学号 `2414034`。
 本轮助手先读取分工、网站全部 Lab2 章节及仓库 `972abb8` 的源码，再形成下述实现规格。这里区分用户原始指令和助手内部实施规格，不虚构额外对话或测试结果。
 
 ## page_init 实现规格 / 本次实施提示词
 
-实现 `kern/mm/pmm.c` 的 `static void page_init(void)`，保留 lab2 标记并标注 2414034。只修改初始化部分，保留 First-Fit 选择，不实现 B/C 的分配器。
+实现 `kern/mm/pmm.c` 的 `static void page_init(void)`，保留 lab2 标记并标注 2414034。只修改初始化部分，保留 First-Fit 选择，不实现 Best-Fit 和 Buddy 分配器。
 
 1. 读取 DTB getter；检查非零长度、base+size 溢出。框架 nbase、启动映射都固定 DRAM_BASE，其他起始地址明确 panic，不能静默套用错误页号关系。
 2. 固定 `va_pa_offset=PHYSICAL_MEMORY_OFFSET`；将 DTB 上界裁剪到框架物理上界和 KERNTOP 对应物理上界，再向下对齐。
 3. `npage` 是绝对 PPN 上界；描述符数 `npage-nbase`。pages 放在 end 之后、页对齐的虚拟地址。
 4. 在写描述符前检查内核地址合法及整个描述符数组能放进可管理 RAM，用减法/除法检查避免先溢出再比较。
 5. 初始化全部描述符为 reserved，ref/property 清零、链表节点初始化。只将描述符末尾向上对齐后到管理上界之间的完整页登记为空闲；零页时不调用 init_memmap。
-6. 输出 DTB 区间、管理区间、描述符 VA/PA/数量/字节数、空闲页区间，供 B/C 和边界测试复核。
+6. 输出 DTB 区间、管理区间、描述符 VA/PA/数量/字节数、空闲页区间，供贺翰林、刘泽民和边界测试复核。
 
 ## 验证与调试实施规格
 
@@ -43,7 +45,7 @@
 ## 实际修改与验证轨迹
 
 1. 助手读取网站、分工和现有源码，向用户询问学号，用户回答 `2414034`，据此替换 `YOUR CODE`。
-2. 依照上述规格实现 page_init。原工程因 B 的 Best-Fit 尚未定义状态而不能完整编译，使用独立副本保留 First-Fit 并排除该未实现模块，未更改 B 的测试。
+2. 依照上述规格实现 page_init。原工程因贺翰林负责的 Best-Fit 尚未定义状态而不能完整编译，使用独立副本保留 First-Fit 并排除该未实现模块，未更改 Best-Fit 的测试。
 3. 系统 QEMU 只输出固件。通过 GDB 定位分页开启后低 PC 未映射，加入临时 stvec；随后三种 RAM 配置、描述符保留区以及八类初始化边界检查通过。
 4. 初次边界脚本用函数名断点，优化代码产生两个地址而重复计数；改成机器入口断点后验证通过。这个问题来自调试方法，不是伪造的内核算法 bug。
 5. 构建带调试符号的 QEMU 4.1.1；客户机目标断点未到达。宿主异常断点揭示旧版继续执行已翻译块并提前清 stvec；补充显式高地址跳转。重新运行新旧两版和全部初始化检查。
@@ -52,7 +54,9 @@
 AI 在本轮承担了规格细化、实现、脚本编写、实际命令执行、根据失败日志修正及报告整理。学生应结合源码和日志理解并核对结果；本记录不把助手实施过程写成学生独立完成的经历，也不伪造用户问过的额外问题。
 ````
 
-## 二、成员 B：Best-Fit 模块提示词
+<a id="best-fit-prompt"></a>
+
+## 二、贺翰林：Best-Fit 模块提示词
 
 ````markdown
 # 任务二：实现 Best-Fit 连续物理内存分配算法
@@ -224,7 +228,9 @@ static size_t best_fit_nr_free_pages(void);
 **Post-Condition**：注册结构接口完整、类型匹配，管理器名称和各回调绑定符合 `[GUARANTEE]`，可供后续内核接入使用。本次不修改当前管理器选择。
 ````
 
-## 三、成员 C：Buddy 实现提示词
+<a id="buddy-implementation-prompt"></a>
+
+## 三、刘泽民：Buddy 实现提示词
 
 ````markdown
 ## [PROMPT]
@@ -580,7 +586,9 @@ Buddy 已经初始化。
 暂不进行实现。
 ````
 
-## 四、成员 C：Buddy 测试提示词
+<a id="buddy-test-prompt"></a>
+
+## 四、刘泽民：Buddy 测试提示词
 
 ````markdown
 ## [PROMPT]
