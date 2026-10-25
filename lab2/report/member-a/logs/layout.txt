@@ -1,0 +1,16 @@
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0xffffffffc02010c4: file kern/mm/pmm.c, line 37.
+
+Breakpoint 1, pmm_init () at kern/mm/pmm.c:131
+131	    init_pmm_manager();
+=== Before page_init ===
+pc             0xffffffffc02010c4	0xffffffffc02010c4 <pmm_init>
+satp           0x8000000000080205	-9223372036854251003
+Hardware assisted breakpoint 2 at 0xffffffffc0200696: file libs/list.h, line 123.
+
+Breakpoint 2, default_check () at libs/list.h:123
+123	    return listelm->next;
+=== After page_init, before First-Fit self-test ===
+LAYOUT_PASS: all 839 reserved pages, 31929 free pages, descriptor array protected
+pages_pa=0x80207000 free_start=0x80347000 upper=0x88000000 sizeof(Page)=40
+[Inferior 1 (process 1) detached]

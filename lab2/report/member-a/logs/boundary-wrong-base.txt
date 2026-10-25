@@ -1,0 +1,14 @@
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0xffffffffc02010c4: file kern/mm/pmm.c, line 37.
+
+Breakpoint 1, pmm_init () at kern/mm/pmm.c:131
+131	    init_pmm_manager();
+Breakpoint 2 at 0xffffffffc0200fb2: file kern/mm/default_pmm.c, line 19.
+Breakpoint 3 at 0xffffffffc02001e6: file kern/debug/panic.c, line 12.
+Breakpoint 4 at 0xffffffffc0200696: file libs/list.h, line 123.
+
+Breakpoint 3, __panic (file=file@entry=0xffffffffc0201e60 "kern/mm/pmm.c", line=line@entry=73, fmt=fmt@entry=0xffffffffc0201e38 "page_init: invalid DTB memory range") at kern/debug/panic.c:12
+12	    if (is_panic) {
+0xffffffffc0201e38:	"page_init: invalid DTB memory range"
+BOUNDARY_PASS wrong-base
+[Inferior 1 (process 1) detached]

@@ -1,0 +1,49 @@
+Breakpoint 1 at 0x3994a8: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c, line 515.
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff79626c0 (LWP 529)]
+[New Thread 0x7ffff50e06c0 (LWP 530)]
+
+OpenSBI v0.4 (Jul  2 2019 11:53:53)
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name          : QEMU Virt Machine
+Platform HART Features : RV64ACDFIMSU
+Platform Max HARTs     : 8
+Current Hart           : 0
+Firmware Base          : 0x80000000
+Firmware Size          : 112 KB
+Runtime SBI Version    : 0.1
+
+PMP0: 0x0000000080000000-0x000000008001ffff (A)
+PMP1: 0x0000000000000000-0xffffffffffffffff (A,R,W,X)
+[Switching to Thread 0x7ffff50e06c0 (LWP 530)]
+
+Thread 3 "qemu-system-ris" hit Breakpoint 1, riscv_cpu_do_interrupt (cs=0x555556281bf0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:515
+515	    target_ulong deleg = async ? env->mideleg : env->medeleg;
+$1 = 0x80200050
+$2 = 0x8000000000080205
+$3 = 0x1
+$4 = 0xb109
+$5 = 0x0
+#0  riscv_cpu_do_interrupt (cs=0x555556281bf0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:515
+#1  0x0000555555858c21 in cpu_handle_exception (cpu=0x555556281bf0, ret=0x7ffff50df9bc) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cpu-exec.c:506
+#2  0x00005555558592ad in cpu_exec (cpu=0x555556281bf0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cpu-exec.c:712
+#3  0x000055555580b4a3 in tcg_cpu_exec (cpu=0x555556281bf0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/cpus.c:1435
+#4  0x000055555580bd5c in qemu_tcg_cpu_thread_fn (arg=0x555556281bf0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/cpus.c:1743
+cpu_handle_exception (cpu=0x555556281bf0, ret=0x7ffff50df9bc) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cpu-exec.c:507
+507	            qemu_mutex_unlock_iothread();
+../trap411.gdb:13: Error in sourced command file:
+There is no member named env.

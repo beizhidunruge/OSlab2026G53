@@ -1,0 +1,304 @@
+Breakpoint 1 at 0x3985d7: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c, line 158.
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff79626c0 (LWP 421)]
+[New Thread 0x7ffff50e06c0 (LWP 422)]
+
+OpenSBI v0.4 (Jul  2 2019 11:53:53)
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name          : QEMU Virt Machine
+Platform HART Features : RV64ACDFIMSU
+Platform Max HARTs     : 8
+Current Hart           : 0
+Firmware Base          : 0x80000000
+Firmware Size          : 112 KB
+Runtime SBI Version    : 0.1
+
+PMP0: 0x0000000080000000-0x000000008001ffff (A)
+PMP1: 0x0000000000000000-0xffffffffffffffff (A,R,W,X)
+[Switching to Thread 0x7ffff50e06c0 (LWP 422)]
+
+Thread 3 "qemu-system-ris" hit Breakpoint 1, get_physical_address (env=0x55555628a6b0, physical=0x7ffff50df2d0, prot=0x7ffff50df2c4, addr=2149605376, access_type=1, mmu_idx=1) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:158
+158	{
+
+=== BARE: real get_physical_address call ===
+#0  get_physical_address (env=0x55555628a6b0, physical=0x7ffff50df2d0, prot=0x7ffff50df2c4, addr=2149605376, access_type=1, mmu_idx=1) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:158
+#1  0x00005555558ed2b3 in riscv_cpu_tlb_fill (cs=0x555556281ca0, address=2149605376, size=8, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:451
+#2  0x0000555555833543 in tlb_fill (cpu=0x555556281ca0, addr=2149605376, size=8, access_type=MMU_DATA_STORE, mmu_idx=1, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:878
+#3  0x0000555555839a1c in store_helper (big_endian=false, size=8, retaddr=140737305058246, oi=49, val=0, addr=2149605376, env=0x55555628a6b0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1522
+#4  helper_le_stq_mmu (env=0x55555628a6b0, addr=2149605376, val=0, oi=49, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1672
+#5  0x00007ffff5131bc6 in code_gen_buffer ()
+#6  0x00005555558580fd in cpu_tb_exec (cpu=0x555556281ca0, itb=0x7ffff5131ac0 <code_gen_buffer+330387>) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cpu-exec.c:173
+addr=0x80206000
+access_type=0x1
+mmu_idx=0x1
+env->satp=0x0
+env->priv=0x1
+163	    int mode = mmu_idx;
+165	    if (mode == PRV_M && access_type != MMU_INST_FETCH) {
+171	    if (mode == PRV_M || !riscv_feature(env, RISCV_FEATURE_MMU)) {
+177	    *prot = 0;
+181	    int mxr = get_field(env->mstatus, MSTATUS_MXR);
+183	    if (env->priv_ver >= PRIV_VERSION_1_10_0) {
+184	        base = get_field(env->satp, SATP_PPN) << PGSHIFT;
+185	        sum = get_field(env->mstatus, MSTATUS_SUM);
+186	        vm = get_field(env->satp, SATP_MODE);
+187	        switch (vm) {
+197	            *physical = addr;
+198	            *prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+199	            return TRANSLATE_SUCCESS;
+353	}
+riscv_cpu_tlb_fill (cs=0x555556281ca0, address=2149605376, size=8, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:453
+453	    if (mode == PRV_M && access_type != MMU_INST_FETCH) {
+HOST_WALK_PASS BARE returned_PA=0x80206000
+Breakpoint 2 at 0x555555832ee7: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c, line 700.
+
+Thread 3 "qemu-system-ris" hit Breakpoint 2, tlb_set_page_with_attrs (cpu=0x555556281ca0, vaddr=2149605376, paddr=2149605376, attrs=..., prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:700
+700	{
+=== Software TLB fill (also used in Bare) ===
+vaddr=0x80206000
+paddr=0x80206000
+prot=0x7
+mmu_idx=0x1
+size=0x1000
+#0  tlb_set_page_with_attrs (cpu=0x555556281ca0, vaddr=2149605376, paddr=2149605376, attrs=..., prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:700
+#1  0x0000555555833467 in tlb_set_page (cpu=0x555556281ca0, vaddr=2149605376, paddr=2149605376, prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:847
+#2  0x00005555558ed3dc in riscv_cpu_tlb_fill (cs=0x555556281ca0, address=2149605376, size=8, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:472
+#3  0x0000555555833543 in tlb_fill (cpu=0x555556281ca0, addr=2149605376, size=8, access_type=MMU_DATA_STORE, mmu_idx=1, retaddr=140737305058246) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:878
+#4  0x0000555555839a1c in store_helper (big_endian=false, size=8, retaddr=140737305058246, oi=49, val=0, addr=2149605376, env=0x55555628a6b0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1522
+701	    CPUArchState *env = cpu->env_ptr;
+702	    CPUTLB *tlb = env_tlb(env);
+703	    CPUTLBDesc *desc = &tlb->d[mmu_idx];
+712	    int asidx = cpu_asidx_from_attrs(cpu, attrs);
+716	    if (size <= TARGET_PAGE_SIZE) {
+717	        sz = TARGET_PAGE_SIZE;
+722	    vaddr_page = vaddr & TARGET_PAGE_MASK;
+723	    paddr_page = paddr & TARGET_PAGE_MASK;
+725	    section = address_space_translate_for_iotlb(cpu, asidx, paddr_page,
+727	    assert(sz >= TARGET_PAGE_SIZE);
+733	    address = vaddr_page;
+734	    if (size < TARGET_PAGE_SIZE) {
+741	    if (!memory_region_is_ram(section->mr) &&
+748	        addend = (uintptr_t)memory_region_get_ram_ptr(section->mr) + xlat;
+751	    code_address = address;
+752	    iotlb = memory_region_section_get_iotlb(cpu, section, vaddr_page,
+755	    index = tlb_index(env, mmu_idx, vaddr_page);
+756	    te = tlb_entry(env, mmu_idx, vaddr_page);
+765	    qemu_spin_lock(&tlb->c.lock);
+768	    tlb->c.dirty |= 1 << mmu_idx;
+771	    tlb_flush_vtlb_page_locked(env, mmu_idx, vaddr_page);
+777	    if (!tlb_hit_page_anyprot(te, vaddr_page) && !tlb_entry_is_empty(te)) {
+800	    desc->iotlb[index].addr = iotlb - vaddr_page;
+801	    desc->iotlb[index].attrs = attrs;
+804	    tn.addend = addend - vaddr_page;
+805	    if (prot & PAGE_READ) {
+806	        tn.addr_read = address;
+811	    if (prot & PAGE_EXEC) {
+812	        tn.addr_code = code_address;
+817	    tn.addr_write = -1;
+818	    if (prot & PAGE_WRITE) {
+819	        if ((memory_region_is_ram(section->mr) && section->readonly)
+820	            || memory_region_is_romd(section->mr)) {
+823	        } else if (memory_region_is_ram(section->mr)
+825	                       memory_region_get_ram_addr(section->mr) + xlat)) {
+824	                   && cpu_physical_memory_is_clean(
+828	            tn.addr_write = address;
+830	        if (prot & PAGE_WRITE_INV) {
+835	    copy_tlb_helper_locked(te, &tn);
+836	    tlb_n_used_entries_inc(env, mmu_idx);
+index=0x6
+te->addr_read=0x80206000
+te->addr_write=0x80206000
+te->addr_code=0x80206000
+te->addend=0x7fff5fe00000
+Breakpoint 3 at 0x5555558ec5d7: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c, line 158.
+
+Thread 3 "qemu-system-ris" hit Breakpoint 3, get_physical_address (env=0x55555628a6b0, physical=0x7ffff50df2e0, prot=0x7ffff50df2d4, addr=18446744072637931544, access_type=1, mmu_idx=1) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:158
+158	{
+
+=== SV39: real get_physical_address call ===
+#0  get_physical_address (env=0x55555628a6b0, physical=0x7ffff50df2e0, prot=0x7ffff50df2d4, addr=18446744072637931544, access_type=1, mmu_idx=1) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:158
+#1  0x00005555558ed2b3 in riscv_cpu_tlb_fill (cs=0x555556281ca0, address=18446744072637931544, size=1, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:451
+#2  0x0000555555833543 in tlb_fill (cpu=0x555556281ca0, addr=18446744072637931544, size=1, access_type=MMU_DATA_STORE, mmu_idx=1, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:878
+#3  0x0000555555837681 in store_helper (big_endian=false, size=1, retaddr=140737305060887, oi=1, val=0, addr=18446744072637931544, env=0x55555628a6b0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1522
+#4  helper_ret_stb_mmu (env=0x55555628a6b0, addr=18446744072637931544, val=0 '\000', oi=1, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1642
+#5  0x00007ffff5132617 in code_gen_buffer ()
+#6  0x00005555558580fd in cpu_tb_exec (cpu=0x555556281ca0, itb=0x7ffff5132500 <code_gen_buffer+333011>) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cpu-exec.c:173
+addr=0xffffffffc0206018
+access_type=0x1
+mmu_idx=0x1
+env->satp=0x8000000000080205
+env->priv=0x1
+163	    int mode = mmu_idx;
+165	    if (mode == PRV_M && access_type != MMU_INST_FETCH) {
+171	    if (mode == PRV_M || !riscv_feature(env, RISCV_FEATURE_MMU)) {
+177	    *prot = 0;
+181	    int mxr = get_field(env->mstatus, MSTATUS_MXR);
+183	    if (env->priv_ver >= PRIV_VERSION_1_10_0) {
+184	        base = get_field(env->satp, SATP_PPN) << PGSHIFT;
+185	        sum = get_field(env->mstatus, MSTATUS_SUM);
+186	        vm = get_field(env->satp, SATP_MODE);
+187	        switch (vm) {
+191	          levels = 3; ptidxbits = 9; ptesize = 8; break;
+223	    CPUState *cs = env_cpu(env);
+224	    int va_bits = PGSHIFT + levels * ptidxbits;
+225	    target_ulong mask = (1L << (TARGET_LONG_BITS - (va_bits - 1))) - 1;
+226	    target_ulong masked_msbs = (addr >> (va_bits - 1)) & mask;
+227	    if (masked_msbs != 0 && masked_msbs != mask) {
+231	    int ptshift = (levels - 1) * ptidxbits;
+237	    for (i = 0; i < levels; i++, ptshift -= ptidxbits) {
+238	        target_ulong idx = (addr >> (PGSHIFT + ptshift)) &
+239	                           ((1 << ptidxbits) - 1);
+238	        target_ulong idx = (addr >> (PGSHIFT + ptshift)) &
+242	        target_ulong pte_addr = base + idx * ptesize;
+244	        if (riscv_feature(env, RISCV_FEATURE_PMP) &&
+245	            !pmp_hart_has_privs(env, pte_addr, sizeof(target_ulong),
+244	        if (riscv_feature(env, RISCV_FEATURE_PMP) &&
+252	        target_ulong pte = ldq_phys(cs->as, pte_addr);
+254	        target_ulong ppn = pte >> PTE_PPN_SHIFT;
+256	        if (!(pte & PTE_V)) {
+levels=0x3
+ptidxbits=0x9
+ptesize=0x8
+base=0x80205000
+i=0x0
+ptshift=0x12
+idx=0x1ff
+pte_addr=0x80205ff8
+pte=0x200000cf
+ppn=0x80000
+259	        } else if (!(pte & (PTE_R | PTE_W | PTE_X))) {
+262	        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_W) {
+265	        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == (PTE_W | PTE_X)) {
+268	        } else if ((pte & PTE_U) && ((mode != PRV_U) &&
+273	        } else if (!(pte & PTE_U) && (mode != PRV_S)) {
+276	        } else if (ppn & ((1ULL << ptshift) - 1)) {
+279	        } else if (access_type == MMU_DATA_LOAD && !((pte & PTE_R) ||
+283	        } else if (access_type == MMU_DATA_STORE && !(pte & PTE_W)) {
+286	        } else if (access_type == MMU_INST_FETCH && !(pte & PTE_X)) {
+292	                (access_type == MMU_DATA_STORE ? PTE_D : 0);
+291	            target_ulong updated_pte = pte | PTE_A |
+295	            if (updated_pte != pte) {
+333	            target_ulong vpn = addr >> PGSHIFT;
+334	            *physical = (ppn | (vpn & ((1L << ptshift) - 1))) << PGSHIFT;
+337	            if ((pte & PTE_R) || ((pte & PTE_X) && mxr)) {
+338	                *prot |= PAGE_READ;
+340	            if ((pte & PTE_X)) {
+341	                *prot |= PAGE_EXEC;
+345	            if ((pte & PTE_W) &&
+347	                *prot |= PAGE_WRITE;
+349	            return TRANSLATE_SUCCESS;
+353	}
+riscv_cpu_tlb_fill (cs=0x555556281ca0, address=18446744072637931544, size=1, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:453
+453	    if (mode == PRV_M && access_type != MMU_INST_FETCH) {
+HOST_WALK_PASS SV39 returned_PA=0x80206000
+FULL_PA=0x80206018
+Breakpoint 4 at 0x555555832ee7: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c, line 700.
+
+Thread 3 "qemu-system-ris" hit Breakpoint 4, tlb_set_page_with_attrs (cpu=0x555556281ca0, vaddr=18446744072637931520, paddr=2149605376, attrs=..., prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:700
+700	{
+=== Software TLB fill (also used in Bare) ===
+vaddr=0xffffffffc0206000
+paddr=0x80206000
+prot=0x7
+mmu_idx=0x1
+size=0x1000
+#0  tlb_set_page_with_attrs (cpu=0x555556281ca0, vaddr=18446744072637931520, paddr=2149605376, attrs=..., prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:700
+#1  0x0000555555833467 in tlb_set_page (cpu=0x555556281ca0, vaddr=18446744072637931520, paddr=2149605376, prot=7, mmu_idx=1, size=4096) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:847
+#2  0x00005555558ed3dc in riscv_cpu_tlb_fill (cs=0x555556281ca0, address=18446744072637931544, size=1, access_type=MMU_DATA_STORE, mmu_idx=1, probe=false, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/target/riscv/cpu_helper.c:472
+#3  0x0000555555833543 in tlb_fill (cpu=0x555556281ca0, addr=18446744072637931544, size=1, access_type=MMU_DATA_STORE, mmu_idx=1, retaddr=140737305060887) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:878
+#4  0x0000555555837681 in store_helper (big_endian=false, size=1, retaddr=140737305060887, oi=1, val=0, addr=18446744072637931544, env=0x55555628a6b0) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1522
+701	    CPUArchState *env = cpu->env_ptr;
+702	    CPUTLB *tlb = env_tlb(env);
+703	    CPUTLBDesc *desc = &tlb->d[mmu_idx];
+712	    int asidx = cpu_asidx_from_attrs(cpu, attrs);
+716	    if (size <= TARGET_PAGE_SIZE) {
+717	        sz = TARGET_PAGE_SIZE;
+722	    vaddr_page = vaddr & TARGET_PAGE_MASK;
+723	    paddr_page = paddr & TARGET_PAGE_MASK;
+725	    section = address_space_translate_for_iotlb(cpu, asidx, paddr_page,
+727	    assert(sz >= TARGET_PAGE_SIZE);
+733	    address = vaddr_page;
+734	    if (size < TARGET_PAGE_SIZE) {
+741	    if (!memory_region_is_ram(section->mr) &&
+748	        addend = (uintptr_t)memory_region_get_ram_ptr(section->mr) + xlat;
+751	    code_address = address;
+752	    iotlb = memory_region_section_get_iotlb(cpu, section, vaddr_page,
+755	    index = tlb_index(env, mmu_idx, vaddr_page);
+756	    te = tlb_entry(env, mmu_idx, vaddr_page);
+765	    qemu_spin_lock(&tlb->c.lock);
+768	    tlb->c.dirty |= 1 << mmu_idx;
+771	    tlb_flush_vtlb_page_locked(env, mmu_idx, vaddr_page);
+777	    if (!tlb_hit_page_anyprot(te, vaddr_page) && !tlb_entry_is_empty(te)) {
+800	    desc->iotlb[index].addr = iotlb - vaddr_page;
+801	    desc->iotlb[index].attrs = attrs;
+804	    tn.addend = addend - vaddr_page;
+805	    if (prot & PAGE_READ) {
+806	        tn.addr_read = address;
+811	    if (prot & PAGE_EXEC) {
+812	        tn.addr_code = code_address;
+817	    tn.addr_write = -1;
+818	    if (prot & PAGE_WRITE) {
+819	        if ((memory_region_is_ram(section->mr) && section->readonly)
+820	            || memory_region_is_romd(section->mr)) {
+823	        } else if (memory_region_is_ram(section->mr)
+825	                       memory_region_get_ram_addr(section->mr) + xlat)) {
+824	                   && cpu_physical_memory_is_clean(
+828	            tn.addr_write = address;
+830	        if (prot & PAGE_WRITE_INV) {
+835	    copy_tlb_helper_locked(te, &tn);
+836	    tlb_n_used_entries_inc(env, mmu_idx);
+index=0x6
+te->addr_read=0xffffffffc0206000
+te->addr_write=0xffffffffc0206000
+te->addr_code=0xffffffffc0206000
+te->addend=0x80001fe00000
+Breakpoint 5 at 0x555555833b63: file /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c, line 1030.
+
+Thread 3 "qemu-system-ris" hit Breakpoint 5, get_page_addr_code (env=0x55555628a6b0, addr=18446744072637913094) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1030
+1030	    if (unlikely(!tlb_hit(entry->addr_code, addr))) {
+=== C instruction-fetch software-TLB lookup ===
+addr=0xffffffffc0201806
+mmu_idx=0x1
+index=0x1
+entry->addr_code=0xffffffffc0201000
+entry->addend=0x80001fe00000
+1039	    if (unlikely(entry->addr_code & (TLB_RECHECK | TLB_MMIO))) {
+TLB_HIT_PASS: skipped refill branch
+
+Thread 3 "qemu-system-ris" hit Breakpoint 5, get_page_addr_code (env=0x55555628a6b0, addr=18446744072637913094) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1030
+1030	    if (unlikely(!tlb_hit(entry->addr_code, addr))) {
+=== C instruction-fetch software-TLB lookup ===
+addr=0xffffffffc0201806
+mmu_idx=0x1
+index=0x1
+entry->addr_code=0xffffffffc0201000
+entry->addend=0x80001fe00000
+1039	    if (unlikely(entry->addr_code & (TLB_RECHECK | TLB_MMIO))) {
+TLB_HIT_PASS: skipped refill branch
+
+Thread 3 "qemu-system-ris" hit Breakpoint 5, get_page_addr_code (env=0x55555628a6b0, addr=18446744072637913104) at /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1/accel/tcg/cputlb.c:1030
+1030	    if (unlikely(!tlb_hit(entry->addr_code, addr))) {
+=== C instruction-fetch software-TLB lookup ===
+addr=0xffffffffc0201810
+mmu_idx=0x1
+index=0x1
+entry->addr_code=0xffffffffc0201000
+entry->addend=0x80001fe00000
+1039	    if (unlikely(entry->addr_code & (TLB_RECHECK | TLB_MMIO))) {
+TLB_HIT_PASS: skipped refill branch
+HOST_MMU_PASS
+[Inferior 1 (process 418) killed]

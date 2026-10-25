@@ -1,0 +1,42 @@
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0x80200008
+
+Breakpoint 1, 0x0000000080200008 in ?? ()
+=== Bare: real kernel store before paging ===
+=> 0x80200008:	sd	a0,0(t0)
+pc             0x80200008	0x80200008
+t0             0x80206000	2149605376
+a0             0x0	0
+satp           0x0	0
+0x000000008020000c in ?? ()
+Hardware assisted breakpoint 2 at 0xffffffffc0201800: file libs/string.c, line 276.
+
+Breakpoint 2, memset (s=0xffffffffc0206018 <free_area>, c=c@entry=0 '\000', n=95) at libs/string.c:276
+276	    while (n -- > 0) {
+=== Sv39: BSS clear ===
+pc             0xffffffffc0201800	0xffffffffc0201800 <memset>
+a0             0xffffffffc0206018	-1071620072
+a1             0x0	0
+a2             0x60	96
+satp           0x8000000000080205	-9223372036854251003
+Dump of assembler code for function memset:
+=> 0xffffffffc0201800 <+0>:	ca01              	beqz	a2,0xffffffffc0201810 <memset+16>
+   0xffffffffc0201802 <+2>:	962a              	add	a2,a2,a0
+   0xffffffffc0201804 <+4>:	87aa              	mv	a5,a0
+   0xffffffffc0201806 <+6>:	0785              	addi	a5,a5,1
+   0xffffffffc0201808 <+8>:	feb78fa3        	sb	a1,-1(a5)
+   0xffffffffc020180c <+12>:	fef61de3        	bne	a2,a5,0xffffffffc0201806 <memset+6>
+   0xffffffffc0201810 <+16>:	8082              	ret
+End of assembler dump.
+0xffffffffc0201808	277	        *p ++ = c;
+=== Actual byte-store instruction and effective VA ===
+=> 0xffffffffc0201808 <memset+8>:	sb	a1,-1(a5)
+a5             0xffffffffc0206019	-1071620071
+a1             0x0	0
+$1 = 0xffffffffc0206018
+$2 = 0x80206018
+=== Root PTE and one-level leaf ===
+$3 = 0xffffffffc0205000
+0xffffffffc0205ff8:	0x00000000200000cf
+GUEST_VA_PA_PASS VA=0xffffffffc0206018 root_PA=0x80205000 PTE_PA=0x80205ff8 PTE=0x200000cf PA=0x80206018
+[Inferior 1 (process 1) detached]

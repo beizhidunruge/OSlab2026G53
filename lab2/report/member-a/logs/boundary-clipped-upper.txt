@@ -1,0 +1,14 @@
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0xffffffffc02010c4: file kern/mm/pmm.c, line 37.
+
+Breakpoint 1, pmm_init () at kern/mm/pmm.c:131
+131	    init_pmm_manager();
+Breakpoint 2 at 0xffffffffc0200fb2: file kern/mm/default_pmm.c, line 19.
+Breakpoint 3 at 0xffffffffc02001e6: file kern/debug/panic.c, line 12.
+Breakpoint 4 at 0xffffffffc0200696: file libs/list.h, line 123.
+
+Breakpoint 4, default_check () at libs/list.h:123
+123	    return listelm->next;
+upper=0x88000000 free_start=0x80347000 free_count=31929 init_memmap_calls=[31929]
+BOUNDARY_PASS clipped-upper
+[Inferior 1 (process 1) detached]

@@ -1,0 +1,12 @@
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0x80200008
+
+Breakpoint 1, 0x0000000080200008 in ?? ()
+=== Bare: real kernel store before paging ===
+=> 0x80200008:	sd	a0,0(t0)
+pc             0x80200008	0x80200008
+t0             0x80206000	2149605376
+a0             0x0	0
+satp           0x0	0
+0x000000008020000c in ?? ()
+Hardware assisted breakpoint 2 at 0xffffffffc02017fa: file libs/string.c, line 276.
