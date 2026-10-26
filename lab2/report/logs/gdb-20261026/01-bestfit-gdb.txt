@@ -1,0 +1,254 @@
+Remote debugging using 127.0.0.1:1234
+0x0000000000001000 in ?? ()
+Hardware assisted breakpoint 1 at 0x80200000
+Continuing.
+
+Temporary breakpoint 1, 0x0000000080200000 in ?? ()
+=> 0x80200000:	auipc	t0,0x7
+   0x80200004:	mv	t0,t0
+   0x80200008:	sd	a0,0(t0)
+   0x8020000c:	auipc	t0,0x7
+   0x80200010:	addi	t0,t0,-4
+   0x80200014:	sd	a1,0(t0)
+   0x80200018:	lui	t0,0xc0206
+   0x8020001c:	addiw	t1,zero,-3
+   0x80200020:	slli	t1,t1,0x1e
+   0x80200022:	sub	t0,t0,t1
+   0x80200026:	srli	t0,t0,0xc
+   0x8020002a:	addiw	t1,zero,-1
+pc             0x80200000	0x80200000
+sp             0x80046eb0	0x80046eb0
+a0             0x0	0
+a1             0x87e00000	2279604224
+$1 = 0x0
+Hardware assisted breakpoint 2 at 0xffffffffc020004c: file kern/init/entry.S, line 44.
+Continuing.
+
+Temporary breakpoint 2, paging_enabled () at kern/init/entry.S:44
+44	    sfence.vma
+pc             0xffffffffc020004c	0xffffffffc020004c <paging_enabled>
+sp             0x80046eb0	0x80046eb0
+$2 = 0x8000000000080206
+=> 0xffffffffc020004c <paging_enabled>:	sfence.vma
+   0xffffffffc0200050 <paging_enabled+4>:	csrw	stvec,zero
+   0xffffffffc0200054 <paging_enabled+8>:	lui	sp,0xc0206
+   0xffffffffc0200058 <paging_enabled+12>:	lui	t0,0xc0200
+   0xffffffffc020005c <paging_enabled+16>:	addi	t0,t0,262
+   0xffffffffc0200060 <paging_enabled+20>:	jr	t0
+   0xffffffffc0200062 <paging_enabled+22>:	unimp
+   0xffffffffc0200064 <print_kerninfo>:	addi	sp,sp,-16
+   0xffffffffc0200066 <print_kerninfo+2>:	sd	ra,8(sp)
+   0xffffffffc0200068 <print_kerninfo+4>:	sd	s0,0(sp)
+A syntax error in expression, near the end of `(unsigned'.
+Undefined command: "long".  Try "help".
+$3 = 0xffffffffc0206000
+$4 = 0x80206000
+0xffffffffc0206ff8:	0x00000000200000cf
+Hardware assisted breakpoint 3 at 0xffffffffc020010e: file kern/init/init.c, line 30.
+Continuing.
+
+Temporary breakpoint 3, kern_init () at kern/init/init.c:30
+30	    memset(edata, 0, end - edata);
+pc             0xffffffffc020010e	0xffffffffc020010e <kern_init+8>
+sp             0xffffffffc0205fe0	0xffffffffc0205fe0
+$5 = 0xffffffffc0206000
+Function "```" not defined.
+25	            (end - (char*)kern_init + 1023) / 1024);
+26	}
+27	
+28	int kern_init(void) {
+29	    extern char edata[], end[];
+30	    memset(edata, 0, end - edata);
+31	    dtb_init();
+32	    cons_init();  // init the console
+33	    const char *message = "(THU.CST) os is loading ...\0";
+34	    //cprintf("%s\n\n", message);
+$6 = 0xffffffffc0200106
+$7 = 511
+$8 = 0x200000cf
+$9 = 0xcf
+$10 = 0x80200106
+$11 = 0x80200106
+$12 = 1
+Temporary breakpoint 4 at 0xffffffffc0201cf6: file kern/mm/pmm.c, line 137.
+Continuing.
+
+Temporary breakpoint 4, pmm_init () at kern/mm/pmm.c:137
+137	    init_pmm_manager();
+132	    // We need to alloc/free the physical memory (granularity is 4KB or other size).
+133	    // So a framework of physical memory manager (struct pmm_manager)is defined in pmm.h
+134	    // First we should init a physical memory manager(pmm) based on the framework.
+135	    // Then pmm can alloc/free the physical memory.
+136	    // Now the first_fit/best_fit/worst_fit/buddy_system pmm are available.
+137	    init_pmm_manager();
+138	
+139	    // detect physical memory space, reserve already used memory,
+140	    // then use pmm->init_memmap to create free page list
+141	    page_init();
+Temporary breakpoint 5 at 0xffffffffc0201982: file kern/mm/pmm.c, line 73.
+Continuing.
+
+Temporary breakpoint 5, page_init () at kern/mm/pmm.c:73
+73	    const uint64_t mem_base = get_memory_base();
+68	}
+69	
+70	//lab2 function1 2414034
+71	static void page_init(void) {
+72	    extern char end[];
+73	    const uint64_t mem_base = get_memory_base();
+74	    const uint64_t mem_size = get_memory_size();
+75	
+76	    /* nbase and the boot page table describe QEMU virt's fixed DRAM base. */
+77	    if (mem_base != DRAM_BASE || mem_size == 0 ||
+#0  page_init () at kern/mm/pmm.c:73
+#1  0xffffffffc0201cfe in pmm_init () at kern/mm/pmm.c:141
+#2  0xffffffffc0200156 in kern_init () at kern/init/init.c:40
+#3  0x000000008000ae9a in ?? ()
+74	    const uint64_t mem_size = get_memory_size();
+mem_base = 2147483648
+mem_size = 18446744072637918304
+mem_end = 0
+maxpa = 18446744072637931456
+mapped_end = 0
+count = 18446744072637931416
+pages_va = 175022014990
+pages_pa = 18446744072637918408
+descriptor_bytes = 18446744072637931440
+freemem = 175022014912
+77	    if (mem_base != DRAM_BASE || mem_size == 0 ||
+$13 = 0x80000000
+$14 = 0x8000000
+Run till exit from #0  page_init () at kern/mm/pmm.c:77
+pmm_init () at kern/mm/pmm.c:144
+144	    check_alloc_page();
+$15 = 0xffffffffc0202968 "best_fit_pmm_manager"
+$16 = 0x80000
+$17 = 0x88000
+$18 = 32768
+$19 = 40
+$20 = 0xffffffffc0208000
+$21 = 0xffffffff40000000
+$22 = 0x80208000
+$23 = 1310720
+$24 = 0x80348000
+$25 = 31928
+$26 = 31928
+$27 = {
+  ref = 0,
+  flags = 1,
+  property = 0,
+  page_link = {
+    prev = 0xffffffffc0208018,
+    next = 0xffffffffc0208018
+  }
+}
+$28 = {
+  ref = 0,
+  flags = 2,
+  property = 31928,
+  page_link = {
+    prev = 0xffffffffc0207018 <free_area>,
+    next = 0xffffffffc0207018 <free_area>
+  }
+}
+$29 = 1
+$30 = 1
+$31 = 1
+Type commands for definition of "show_best".
+End with a line saying just "end".
+Temporary breakpoint 6 at 0xffffffffc0200b6a: file kern/mm/best_fit_pmm.c, line 89.
+Continuing.
+
+Temporary breakpoint 6, best_fit_alloc_pages (n=5) at kern/mm/best_fit_pmm.c:89
+89	    assert(n > 0);
+#0  best_fit_alloc_pages (n=5) at kern/mm/best_fit_pmm.c:89
+#1  0xffffffffc020191c in alloc_pages (n=5) at kern/mm/pmm.c:56
+#2  0xffffffffc0201454 in best_fit_check () at kern/mm/best_fit_pmm.c:233
+#3  0xffffffffc0201da8 in check_alloc_page () at kern/mm/pmm.c:153
+#4  0xffffffffc0201d02 in pmm_init () at kern/mm/pmm.c:144
+#5  0xffffffffc0200156 in kern_init () at kern/init/init.c:40
+#6  0x000000008000ae9a in ?? ()
+$32 = 5
+$33 = 31928
+head=0xffffffffc0210340 pages=31928 flags=2
+Run till exit from #0  best_fit_alloc_pages (n=5) at kern/mm/best_fit_pmm.c:89
+0xffffffffc020191c in alloc_pages (n=5) at kern/mm/pmm.c:56
+56	    return pmm_manager->alloc_pages(n);
+Value returned is $34 = (struct Page *) 0xffffffffc0210340
+$35 = (struct Page *) 0xffffffffc0210340
+$36 = {
+  ref = 0,
+  flags = 0,
+  property = 0,
+  page_link = {
+    prev = 0xffffffffc0207018 <free_area>,
+    next = 0xffffffffc0207018 <free_area>
+  }
+}
+$37 = 5
+$38 = 31923
+head=0xffffffffc0210408 pages=31923 flags=2
+Temporary breakpoint 7 at 0xffffffffc0200b6a: file kern/mm/best_fit_pmm.c, line 89.
+Continuing.
+
+Temporary breakpoint 7, best_fit_alloc_pages (n=1) at kern/mm/best_fit_pmm.c:89
+89	    assert(n > 0);
+$39 = 1
+$40 = 3
+head=0xffffffffc0210368 pages=2 flags=2
+head=0xffffffffc02103e0 pages=1 flags=2
+Run till exit from #0  best_fit_alloc_pages (n=1) at kern/mm/best_fit_pmm.c:89
+0xffffffffc020191c in alloc_pages (n=1) at kern/mm/pmm.c:56
+56	    return pmm_manager->alloc_pages(n);
+Value returned is $41 = (struct Page *) 0xffffffffc02103e0
+$42 = (struct Page *) 0xffffffffc02103e0
+$43 = 2
+head=0xffffffffc0210368 pages=2 flags=2
+Temporary breakpoint 8 at 0xffffffffc0200d9a: file kern/mm/best_fit_pmm.c, line 132.
+Continuing.
+
+Temporary breakpoint 8, best_fit_free_pages (base=0xffffffffc0210340, n=5) at kern/mm/best_fit_pmm.c:132
+132	    assert(n > 0);
+$44 = (struct Page *) 0xffffffffc0210340
+$45 = 5
+$46 = 31923
+head=0xffffffffc0210408 pages=31923 flags=2
+Temporary breakpoint 9 at 0xffffffffc0200840: file kern/mm/best_fit_pmm.c, line 27.
+Continuing.
+
+Temporary breakpoint 9, best_fit_insert_free_block (base=0xffffffffc0210340) at kern/mm/best_fit_pmm.c:27
+27	    list_entry_t *le = list_next(&free_list);
+$47 = (struct Page *) 0xffffffffc0210340
+$48 = {
+  ref = 0,
+  flags = 2,
+  property = 5,
+  page_link = {
+    prev = 0xffffffffc0207018 <free_area>,
+    next = 0xffffffffc0207018 <free_area>
+  }
+}
+22	 * 再与物理相邻的前后空闲块合并，清除失效首页的标记和块长。
+23	 * 空闲页计数由调用者更新，本函数只调整链表和块的组织方式。
+24	 */
+25	static void
+26	best_fit_insert_free_block(struct Page *base) {
+27	    list_entry_t *le = list_next(&free_list);
+28	    while (le != &free_list) {
+29	        struct Page *p = le2page(le, page_link);
+30	        if (base < p) {
+31	            break;
+Run till exit from #0  best_fit_insert_free_block (base=0xffffffffc0210340) at kern/mm/best_fit_pmm.c:27
+best_fit_free_pages (base=0xffffffffc0210340, n=5) at kern/mm/best_fit_pmm.c:143
+143	}
+$49 = 31928
+head=0xffffffffc0210340 pages=31928 flags=2
+$50 = 5
+Continuing.
+
+Program received signal SIGINT, Interrupt.
+kern_init () at kern/init/init.c:43
+43	    while (1)
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+

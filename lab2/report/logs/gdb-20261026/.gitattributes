@@ -1,0 +1,2 @@
+# Keep the original debugger/serial evidence bytes on every platform.
+*.txt -text
