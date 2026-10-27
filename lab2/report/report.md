@@ -1667,159 +1667,420 @@ HOST_MMU_PASS
 
 客户机 GDB 确认数据 VA、根 PTE 和完整 PA；宿主 GDB 在实际调用中观察 Bare/Sv39 路径。三次 `TLB_HIT_PASS` 对应后续取指命中，不是数据写入的再次命中。源码分支、权限判断、页内偏移与软件 TLB 的含义见第四节 GDB 部分。
 
-### 5.5 客户机 GDB 调试全过程与截图核查（2026-10-26）
+### 5.5 客户机 GDB 调试与结果分析（2026-10-26）
 
-本节由丁欣怡在 Windows/WSL Ubuntu 环境中实际执行并保存截图，补充启动、物理内存初始化和两种分配器的动态证据。下面按照执行顺序整理全部 14 张原始截图。
+本节通过客户机 GDB 调试，观察内核启动、物理内存初始化以及 Best-Fit、Buddy 两种分配器的运行状态。调试于 2026-10-26 在 Windows/WSL Ubuntu 环境中完成，以下分析以图 G1—G14 为实验记录，结合源码解释状态变化。
 
-**代码与环境边界：** 调试目录来自提交 `1baa2c784943203e1cc2f68c9364539761bef32b` 的 main 快照。整理时已比较该快照与 `17534161588863e12022aaab0e5d99e7528ec7e1`，两者 `lab2/code/` 无差异。根据本次操作流程，Best-Fit 使用 `make DEFS="-O0 -fno-inline"`，Buddy 另加 `-DLAB2_PMM_BUDDY`，切换前均清理构建；QEMU 使用 `virt`、128 MiB、`-kernel bin/ucore.img`，客户机 GDB 加载同次构建的 `bin/kernel`。串口日志记录 OpenSBI v1.3；本批材料未保存编译器、GDB、QEMU 的版本查询，不将第五节前述 QEMU 4.1.1 集成环境直接套用到这次运行。
+#### 5.5.1 实验条件与调试方法
 
-本次是 **GDB 连接 QEMU 的客户机调试端口**。截图中的页表读取和地址核算不能代替宿主 GDB 单步 QEMU C 源码；第四节及 5.4 节的宿主 MMU/TLB 证据仍属于 2026-10-17 的独立记录，不声称在本次重跑。
+实验使用提交 `1baa2c784943203e1cc2f68c9364539761bef32b` 对应的源码快照。Best-Fit 采用 `make DEFS="-O0 -fno-inline"` 构建；Buddy 在此基础上增加 `-DLAB2_PMM_BUDDY`。切换配置前执行 `make clean`，以避免复用不同编译参数生成的目标文件。关闭优化和内联便于观察局部变量及函数调用，但也会改变内核布局，因此本节地址与页数仅对应此次构建。
 
-完整操作顺序和可复用命令见 [2026-10-26 GDB 命令与材料索引](gdb-20261026.md)。现存文本证据如下，保留原文件内容：
+QEMU 配置为 `virt` 机型、128 MiB 内存，通过 `-kernel bin/ucore.img` 加载内核。`gdb-multiarch` 加载同次构建的 `bin/kernel`，连接 QEMU 的客户机调试端口，使用断点、反汇编、寄存器查询及函数返回前后的状态比较完成观察。截图未包含工具版本查询，故不沿用第 5.2 节集成测试的具体版本信息。
 
-| 材料 | 内容与限制 |
-| --- | --- |
-| [Best-Fit GDB 输出](logs/gdb-20261026/01-bestfit-gdb.txt) | 从连接、启动断点到自检结束后的暂停；GDB logging 并不包含每条手工输入命令，不能当作完整键盘录入转录 |
-| [Best-Fit 串口输出](logs/gdb-20261026/01-bestfit-serial.txt) | 固件、DTB、内存布局、自检成功及退出信息 |
-| [Buddy 串口输出](logs/gdb-20261026/02-buddy-serial.txt) | Buddy 布局和自检成功；固件横幅含原始 NUL 字节，网页可能按二进制处理，可下载查看 |
-| Buddy GDB 截图 | 本地 `02-buddy-gdb.txt` 为 0 字节，本次不提交空日志，也不补造逐行日志；使用下方原始截图作为证据 |
+本轮调试关注客户机内核的执行状态及启动页表。宿主 QEMU 中的地址翻译与软件 TLB 行为仍参见第四节和第 5.4 节的历史实验记录，两轮结果分别讨论。
 
-两份串口原文件的固件横幅各含一个 NUL 字节，为保持原始证据未删除；若网页不显示文本，可下载查看，关键结果也已在下文原图和正文呈现。
+为明确不同调试层次，终端职责划分如下。本节图 G1—G14 对应终端一与终端二；终端三用于宿主源码调试，未包含在本轮截图中。
 
-#### 5.5.1 物理入口：固件交接与 Bare 状态
+| 终端 | 运行对象与职责 | 执行控制的含义 |
+| --- | --- | --- |
+| 终端一：QEMU | 运行 RISC-V 虚拟机，显示固件、DTB、内存布局和自检输出 | `-S` 使客户机 CPU 在启动时暂停，等待终端二控制 |
+| 终端二：客户机 GDB | `gdb-multiarch` 加载内核 ELF，查看客户机指令、寄存器和内核变量 | `continue` 运行客户机至下一断点；`next` 执行源代码行；`finish` 执行至当前函数返回 |
+| 终端三：宿主 GDB（本轮未采集） | 调试带符号的 QEMU 进程，观察地址翻译及软件 TLB 的 C 实现 | 控制 QEMU 宿主进程；宿主断点命中时，客户机 GDB 的请求也可能暂时等待 |
+
+本节两终端的启动步骤如下。两个终端均在同一构建目录 `lab2/code` 中工作。首先在终端一编译并暂停启动虚拟机：
+
+```bash
+make clean
+make DEFS="-O0 -fno-inline"
+qemu-system-riscv64 \
+  -machine virt -m 128M -nographic \
+  -bios default -kernel bin/ucore.img \
+  -gdb tcp:127.0.0.1:1234 -S
+```
+
+随后切换到终端二，启动客户机 GDB：
+
+```bash
+gdb-multiarch -q bin/kernel
+```
+
+在 `(gdb)` 提示符下逐条输入：
+
+```gdb
+set pagination off
+set confirm off
+set print pretty on
+set architecture riscv:rv64
+target remote 127.0.0.1:1234
+```
+
+此后在终端二设置断点和推进执行，在终端一观察输出。终端切换仅改变输入焦点，不会使暂停的 CPU 自动继续；必须在 GDB 中执行 `continue` 或单步命令。客户机寄存器读数与终端一的串口输出分别反映执行状态和内核打印结果，两者结合用于核对调试结论。以下命令按截图对应的操作顺序整理，供复现使用，不作为独立于截图的新增实测证据。
+
+#### 5.5.2 内核启动与启动映射核算
+
+首先在终端二设置物理入口断点。此时尚未进入高地址映射，使用启动装载地址定位第一条内核指令，能够在参数保存和分页配置前读取初始状态：
+
+```gdb
+thbreak *0x80200000
+continue
+x/12i $pc
+info registers pc sp a0 a1
+p/x $satp
+```
 
 ![图 G1：物理入口、参数寄存器和 Bare 状态](images/gdb-20261026/01-physical-entry.png)
 
-在 `0x80200000` 设置一次性硬件断点后，观察到 `pc=0x80200000`、`satp=0`、`a0=0`、`a1=0x87e00000`。这些结果分别对应内核物理入口、Bare 模式、启动 hart ID 和 DTB 地址。反汇编显示后续 `sd a0,0(t0)`、`sd a1,0(t0)` 保存参数，但截图停在首条指令，不能写成这两条存储已经执行。
+在物理入口 `0x80200000` 设置一次性硬件断点后，读得 `pc=0x80200000`、`satp=0`、`a0=0`、`a1=0x87e00000`。此时地址转换处于 Bare 模式，`a0` 和 `a1` 分别传入启动 hart ID 与 DTB 地址。反汇编中的两条 `sd` 指令用于保存这两个参数；断点位于首条指令，参数保存尚未执行。`sp=0x80046eb0` 表明程序仍沿用此前的栈指针，尚未设置内核启动栈。由于内核 ELF 按高虚拟地址链接，GDB 在该低地址入口未显示函数符号。
 
-此时 `sp=0x80046eb0`，内核启动栈尚未设置。低地址处显示 `??` 是因为加载的内核 ELF 符号位于高虚拟地址，不表示断点失败。
+接着仍在终端二设置 `paging_enabled` 断点。该位置处于分页配置和高地址转移之后、启动栈设置之前，便于将地址空间转换与栈初始化两个阶段分开观察：
 
-#### 5.5.2 开启 Sv39：高地址入口和根页表
+```gdb
+thbreak paging_enabled
+continue
+info registers pc sp
+p/x $satp
+x/10i $pc
+p/x (unsigned long)&boot_page_table_sv39
+set $root_pa = ((unsigned long)$satp & 0xfffffffffff) << 12
+p/x $root_pa
+x/gx (unsigned long)&boot_page_table_sv39 + 511*8
+```
 
 ![图 G2：进入 paging_enabled 并读取 satp 和根 PTE](images/gdb-20261026/02-paging-enabled.png)
 
-继续执行后命中 `paging_enabled`，`pc=0xffffffffc020004c`，`satp=0x8000000000080206`。MODE 为 8，根页表物理地址为 `(satp & ((1ULL<<44)-1))<<12 = 0x80206000`；符号地址为 `0xffffffffc0206000`，两者相差内核固定映射偏移。
+继续运行至 `paging_enabled` 后，PC 变为 `0xffffffffc020004c`，`satp=0x8000000000080206`。其 MODE 字段为 8，对应 Sv39；低 44 位保存根页表物理页号，左移 12 位得到根页表 PA `0x80206000`。根页表符号 VA 为 `0xffffffffc0206000`，与该物理地址相差 `0xffffffff40000000`。
 
-根表第 511 项位于 VA `0xffffffffc0206ff8`，内容为 `0x200000cf`。此时停在 `sfence.vma`，其后的 `lui sp,0xc0206` 尚未执行，因此 `sp` 仍为低地址是正常的。反汇编还显示跳转之后的 `unimp`，但没有证据表明 CPU 执行到该位置，不能据此判断发生非法指令异常。
+根表第 511 项位于 VA `0xffffffffc0206ff8`，读得 PTE 为 `0x200000cf`。此时程序停在 `sfence.vma`，设置栈指针的 `lui sp,0xc0206` 尚未执行，因此仍可观察到低地址 `sp`。反汇编中 `jr t0` 后显示的 `unimp` 不在该跳转的顺序执行路径上，本图未显示非法指令异常。
 
-截图中的 `(unsigned` / `long)&boot_page_table_sv39` 两次报错来自一条命令被人为拆成两行；随后输入完整表达式已成功。它是调试命令语法错误，不是页表损坏。
+随后以 `kern_init` 为断点，检查汇编启动代码是否已转入 C 初始化，并观察函数序言后的栈指针：
 
-#### 5.5.3 进入 kern_init：高地址栈和函数序言
+```gdb
+thbreak kern_init
+continue
+info registers pc sp
+p/x &bootstacktop
+list
+```
 
 ![图 G3：kern_init 的 PC、栈指针和 C 初始化入口](images/gdb-20261026/03-kern-init.png)
 
-函数断点停在 `pc=0xffffffffc020010e`，即 `kern_init+8`，准备执行 BSS 清零。`bootstacktop=0xffffffffc0206000`，`sp=0xffffffffc0205fe0`，相差 `0x20` 字节。函数序言已建立栈帧，所以 `sp` 无需与栈顶严格相等；该值仍位于启动栈内。
+进入 `kern_init` 后，断点位于 `0xffffffffc020010e`，即函数入口后 8 字节，准备执行 BSS 清零。此时 `sp=0xffffffffc0205fe0`，比 `bootstacktop=0xffffffffc0206000` 低 `0x20` 字节，与函数序言分配栈帧的行为一致，说明程序已使用内核高地址栈。
 
-误把 Markdown 的三个反引号粘入 GDB，导致一次 `Function ... not defined`。随后正常的 `list` 输出源码，说明这是输入格式问题，不是内核函数缺失。
+图 G2、G3 中分别保留了表达式被拆行、误输入 Markdown 反引号所产生的命令错误；随后重新输入命令均获得有效输出。这些错误发生在 GDB 命令解析阶段，不影响上述寄存器和页表读数。
 
-#### 5.5.4 按当前页表核算 VA→PA
+保持客户机暂停，在终端二读取根页表并进行两种地址计算。该操作读取已有状态，不调用分配器或地址翻译函数：
+
+```gdb
+set $va = (unsigned long)&kern_init
+set $vpn2 = ($va >> 30) & 0x1ff
+set $root_pte = *(unsigned long *)((unsigned long)&boot_page_table_sv39 + $vpn2*8)
+p/x $va
+p/d $vpn2
+p/x $root_pte
+p/x $root_pte & 0xff
+set $pa = (($root_pte >> 10) << 12) | ($va & 0x3fffffff)
+p/x $pa
+p/x $va - 0xffffffff40000000
+p $pa == ($va - 0xffffffff40000000)
+```
 
 ![图 G4：核对 kern_init 虚拟地址对应的物理地址](images/gdb-20261026/04-sv39-address-check.png)
 
-本次选取的是函数符号 `&kern_init=0xffffffffc0200106`，不是断点处的 `kern_init+8`，也不是某条访存指令的数据有效地址。计算得到根索引 511、PTE `0x200000cf`、低八位标志 `0xcf`，其中 V/R/W/X/A/D 为 1，U/G 为 0。它是根级 1 GiB 叶子，PPN 的低位满足超级页对齐条件。
+选择函数符号地址 `&kern_init=0xffffffffc0200106` 核算映射。该地址与图 G3 中断点处的 PC 相差 8 字节。根索引为 `(VA >> 30) & 0x1ff = 511`，对应 PTE 的低八位为 `0xcf`，其中 V、R、W、X、A、D 置位，U、G 清零。该项为根级叶子，其物理页号满足超级页对齐要求，对应 1 GiB 映射。
+
+根据根级叶子的地址组成关系：
 
 ```text
 PA = ((PTE >> 10) << 12) | (VA & 0x3fffffff)
    = 0x80000000 | 0x00200106
    = 0x80200106
-VA - 0xffffffff40000000 = 0x80200106
 ```
 
-两种计算的比较结果为 1，证明当前启动映射与固定偏移关系一致。此处没有单步宿主翻译函数，不能称为“完整三级页表遍历”或“TLB 命中验证”；当前映射实际上在根级叶子结束。
+使用固定偏移计算 `VA - 0xffffffff40000000`，结果同为 `0x80200106`，GDB 等值比较返回 1。两种计算一致，验证了所选函数地址的启动映射关系。该映射在根级叶子处完成解析，本项观察属于客户机页表内容核算，未涉及宿主 MMU 函数或 TLB 查询过程。
 
-#### 5.5.5 page_init 调用链与未初始化局部变量
+#### 5.5.3 物理内存初始化与描述符布局
+
+在终端二依次设置 `pmm_init` 和 `page_init` 断点。前者定位物理内存管理的入口，后者定位布局计算与描述符初始化的实现，使初始化前的输入与返回后的状态可以分别检查：
+
+```gdb
+tbreak pmm_init
+continue
+list
+tbreak page_init
+continue
+list
+bt
+next
+info locals
+```
 
 ![图 G5：page_init 调用栈和赋值前的局部变量](images/gdb-20261026/05-page-init-uninitialized-locals.png)
 
-`bt` 显示当前可确认的 C 调用链为 `kern_init → pmm_init → page_init`。单步执行第 73 行后，`mem_base=2147483648=0x80000000`；GDB 接着显示第 74 行，表示该行即将执行。此时 `mem_size`、`maxpa`、`count`、`freemem` 等尚未赋值，`info locals` 所显示的大数或零不能用于判断内存布局。
+在 `page_init` 设置断点后，调用栈显示 `kern_init → pmm_init → page_init`。单步执行第 73 行后，`mem_base=2147483648`，即 `0x80000000`。此时第 74 行尚未执行，`mem_size` 及后续局部变量尚未初始化，因而不使用这些读数分析内存布局。内存容量由图 G10 的 DTB 输出确认，为 `0x08000000` 字节，即 128 MiB。
 
-随后保存的 GDB 文本记录显示，继续一步后读取到 `mem_base=0x80000000`、`mem_size=0x08000000`，与串口的 128 MiB 一致。GDB 最底部未解析的固件地址也不应当作可信的额外 C 调用关系。
+完成入口观察后，在终端二执行 `finish`，等待初始化函数返回，再读取已完成赋值的全局状态。使用结构体字段而非源码宏查询空闲页数，避免依赖 GDB 宏调试信息：
 
-#### 5.5.6 初始化完成：描述符布局、保留页和计数
+```gdb
+finish
+p pmm_manager->name
+p/x nbase
+p/x npage
+p/d npage - nbase
+p sizeof(struct Page)
+p/x pages
+p/x va_pa_offset
+set $desc_pa = (unsigned long)pages - va_pa_offset
+set $desc_bytes = (npage - nbase) * sizeof(struct Page)
+set $free_pa = ($desc_pa + $desc_bytes + 4095) & ~((unsigned long)4095)
+set $first_free = ($free_pa >> 12) - nbase
+p/x $desc_pa
+p/d $desc_bytes
+p/x $free_pa
+p/d ((npage << 12) - $free_pa) / 4096
+p 'best_fit_pmm.c'::free_area.nr_free
+p pages[0]
+p pages[$first_free]
+```
 
 ![图 G6：Page 数组布局和保留、空闲首页状态](images/gdb-20261026/06-page-layout.png)
 
-`finish` 等待 `page_init` 返回后读取全局状态，结果如下：
+使用 `finish` 等待 `page_init` 返回后，查询全局变量并计算描述符占用及可用区间，结果如下。
 
-| 项目 | 本次 Best-Fit 构建的实测值 |
+| 项目 | 观测或计算结果 |
 | --- | --- |
-| `nbase` / `npage` | `0x80000` / `0x88000`，均为绝对物理页号 |
-| 描述符数量 | `npage-nbase=32768` |
+| 物理页号起点 `nbase` | `0x80000` |
+| 物理页号上界 `npage` | `0x88000` |
+| 描述符数量 | `npage - nbase = 32768` |
 | `sizeof(struct Page)` | 40 字节 |
-| 描述符 VA / PA | `0xffffffffc0208000` / `0x80208000` |
-| 描述符占用 | `32768×40=1310720=0x140000` 字节 |
-| 首个空闲页 PA | `0x80348000` |
-| 空闲页数 | `(0x88000000-0x80348000)/4096=31928`，与 `free_area.nr_free` 一致 |
+| 描述符数组 VA | `0xffffffffc0208000` |
+| 由映射偏移计算的描述符数组 PA | `0x80208000` |
+| 描述符占用 | `32768 × 40 = 1310720 = 0x140000` 字节 |
+| 数组末端向上按页对齐后的可用起点 | `0x80348000` |
+| 由可用区间计算的空闲页数 | `(0x88000000 - 0x80348000) / 4096 = 31928` |
+| 分配器记录的空闲页数 | `free_area.nr_free = 31928` |
 
-由上述数据可推导初始保留前缀为 `32768-31928=840` 页。截图抽查 `pages[0]` 的 `flags=1`、`property=0`，符合保留页状态；首个空闲块首页的 `flags=2`、`property=31928`，符合空闲块首页状态。它验证了布局计算和这两个描述符，不能写成本次逐一检查了全部 32768 个描述符；5.4 节的全量检查属于另一轮历史验证。
+计算所得页数与分配器计数一致。由总页数减去空闲页数，可得初始保留前缀共 840 页，覆盖固件、内核、描述符数组及对齐占用。
 
-#### 5.5.7 Best-Fit：5 页分配与剩余块
+图 G6 还检查了两个描述符：`pages[0]` 的 `flags=1`、`property=0`，表示保留页；首个空闲块首页的 `flags=2`、`property=31928`，表示长度为 31928 页的空闲块。上述结果验证了描述符布局及所检查页面的状态；本轮截图中的状态检查范围为这两个样本。
+
+#### 5.5.4 Best-Fit 分配选择、分裂与回收
+
+为比较分配前后的链表，在终端二定义只读命令 `show_best`，显示空闲页总数及最多 20 个空闲块的首页地址、块长和标志。命令只读取描述符，不改变分配器状态：
+
+```gdb
+define show_best
+set $bf_head = &'best_fit_pmm.c'::free_area.free_list
+set $bf_node = $bf_head->next
+set $bf_offset = (unsigned long)&((struct Page *)0)->page_link
+set $bf_seen = 0
+p 'best_fit_pmm.c'::free_area.nr_free
+while $bf_node != $bf_head && $bf_seen < 20
+set $bf_page = (struct Page *)((unsigned long)$bf_node - $bf_offset)
+printf "head=%p pages=%u flags=%lu\n", $bf_page, $bf_page->property, $bf_page->flags
+set $bf_node = $bf_node->next
+set $bf_seen = $bf_seen + 1
+end
+end
+```
+
+首先将断点限定为 `n==5`，跳过前面的单页自检，捕获原自检中的连续 5 页申请。`finish` 后立即保存 `a0`，因为 RISC-V ABI 通过该寄存器返回分配得到的指针：
+
+```gdb
+tbreak best_fit_alloc_pages if n == 5
+continue
+bt
+p n
+show_best
+set $bf_before = 'best_fit_pmm.c'::free_area.nr_free
+finish
+set $bf_allocated = (struct Page *)$a0
+p $bf_allocated
+p *$bf_allocated
+p $bf_before - 'best_fit_pmm.c'::free_area.nr_free
+show_best
+```
 
 ![图 G7：从初始大块分配 5 页](images/gdb-20261026/07-best-fit-split.png)
 
-在原自检真实调用的 `best_fit_alloc_pages(n=5)` 停下，调用栈包含 `best_fit_check → alloc_pages → best_fit_alloc_pages`，没有在 GDB 人工调用分配器。分配前一个空闲块的首页为 `0xffffffffc0210340`、长度 31928；返回同一首页后，`flags=0`、`property=0`，空闲页数减少 5，剩余块首页为 `0xffffffffc0210408`、长度 31923。
+在 `best_fit_alloc_pages(n=5)` 停下时，调用栈显示该请求来自 `best_fit_check → alloc_pages → best_fit_alloc_pages`。分配前，空闲链表中仅有一个首页为 `0xffffffffc0210340`、长度为 31928 页的块。分配返回同一首页，其 `flags` 与 `property` 均清零；剩余空闲块首页变为 `0xffffffffc0210408`，长度为 31923 页，空闲总数恰好减少 5。
 
-两个首页地址相差 `0xc8=200=5×40` 字节，因为它们是 `struct Page *`，每前进一个描述符对应一个 4 KiB 物理页，不能把描述符地址差直接当作被分配的物理字节数。
+两个首页指针相差 `0xc8=200=5×40` 字节，对应 5 个 `Page` 描述符，即分配块占用的 5 个连续物理页。剩余块从原块的第 6 个页面开始，符合分配前部并保留余部的分裂方式。
 
-#### 5.5.8 Best-Fit：选择最小适合块
+继续在终端二设置条件断点 `n==1 && nr_free==3`。在当前自检顺序下，该条件定位到包含 2 页块和 1 页块的选择场景；随后用 `show_best` 确认候选集合，才能解释返回地址所体现的策略：
+
+```gdb
+tbreak best_fit_alloc_pages if n == 1 && 'best_fit_pmm.c'::free_area.nr_free == 3
+continue
+p n
+show_best
+finish
+set $bf_chosen = (struct Page *)$a0
+p $bf_chosen
+show_best
+```
 
 ![图 G8：在 2 页块和 1 页块中选择精确匹配者](images/gdb-20261026/08-best-fit-selection.png)
 
-自检构造两个按地址递增的空闲块：`0xffffffffc0210368` 长 2 页，`0xffffffffc02103e0` 长 1 页，总空闲数为 3。申请 1 页后返回后者，剩余链表只保留前者，总空闲数为 2。
+在选择策略测试中，链表按地址顺序包含两个空闲块：`0xffffffffc0210368` 对应 2 页，`0xffffffffc02103e0` 对应 1 页。申请 1 页后，返回后者，剩余链表仅保留 2 页块，空闲总数由 3 变为 2。
 
-这一场景直接体现 Best-Fit 与 First-Fit 的选择差别：地址更低的 2 页块虽能满足请求，但 Best-Fit 选择精确匹配的 1 页块。只查看返回非空不能证明这一性质，本图同时保留了候选集合和返回地址。
+地址较低的 2 页块已经能够满足请求，但实际选择了容量恰好匹配的 1 页块，符合 Best-Fit 的最小适合块规则。对于这一候选集合，First-Fit 将选择先遇到的 2 页块，因此该场景能够区分两种策略。
 
-#### 5.5.9 Best-Fit：释放与相邻块合并
+释放阶段选择 `n==5` 且空闲页数大于零的调用，以定位当前自检恢复全局空闲链表后的归还操作；再进入 `best_fit_insert_free_block`，将释放入口、插入前和插入后的状态对应起来：
+
+```gdb
+tbreak best_fit_free_pages if n == 5 && 'best_fit_pmm.c'::free_area.nr_free > 0
+continue
+p base
+p n
+set $bf_free_before = 'best_fit_pmm.c'::free_area.nr_free
+show_best
+tbreak best_fit_insert_free_block
+continue
+p base
+p *base
+list
+finish
+show_best
+p 'best_fit_pmm.c'::free_area.nr_free - $bf_free_before
+```
 
 ![图 G9：归还 5 页并与后继空闲块合并](images/gdb-20261026/09-best-fit-coalesce.png)
 
-释放前待归还块首页为 `0xffffffffc0210340`、长度 5，空闲链表中为其后继 `0xffffffffc0210408`、长度 31923。进入 `best_fit_insert_free_block` 时，释放块已设 `flags=2`、`property=5`。函数返回后链表恢复为首页 `0xffffffffc0210340` 的单个 31928 页块，空闲总数恰好增加 5。
+释放时，待归还块首页为 `0xffffffffc0210340`，请求释放 5 页；空闲链表中的后继块首页为 `0xffffffffc0210408`，长度为 31923 页。进入 `best_fit_insert_free_block` 后，归还块已设置 `flags=2`、`property=5`。两首页相差 5 个描述符，满足 `base + base->property == successor`，因此能够合并。
 
-两首页相差 5 个描述符，满足本次后继相邻条件。计数在释放函数中增加一次，插入合并仅调整块的组织；没有因合并再计数。本图证明本次后继合并，不单凭此图声称已动态覆盖所有前驱或双侧合并路径。
+函数返回后，链表恢复为首页 `0xffffffffc0210340`、长度 31928 页的单个块，空闲总数增加 5。该结果与源码中“释放函数更新计数、插入函数调整链表和块长”的分工一致，观察到的后继合并没有造成重复计数。
 
-#### 5.5.10 Best-Fit 自检结束
+最后在终端二执行 `continue`，再切换到终端一检查自检输出。此时终端二可能一直显示 `Continuing.`：源码在自检后进入 `while(1)`，不会像普通用户程序那样主动退出。是否正常结束自检，应依据终端一的明确成功信息判断。
 
 ![图 G10：Best-Fit 的 DTB、布局与自检成功](images/gdb-20261026/10-best-fit-self-check.png)
 
-串口显示 `memory management: best_fit_pmm_manager` 和 `check_alloc_page() succeeded!`，描述符 PA `0x80208000`、空闲起点 `0x80348000`、31928 页与 GDB 结果一致。DTB 输出 `End=0x87ffffff` 是包含式末地址，管理区间的 `0x88000000` 是不包含的上界，两者没有矛盾。
+串口显示管理器为 `best_fit_pmm_manager`，并输出 `check_alloc_page() succeeded!`。描述符数组 PA、可用起点和空闲页数分别为 `0x80208000`、`0x80348000` 和 31928，与图 G6—G9 一致。
 
-GDB 文本记录最后因用户 Ctrl+C 收到 `SIGINT`，停在 `kern_init` 的 `while(1)`。这是自检结束后的主动暂停，不是内核崩溃；本轮未执行或记录课程评分，不能由这张图推出新一次 20/20。
+DTB 输出的 `End=0x87ffffff` 表示最后一个有效字节地址；管理区间 `[0x80000000, 0x88000000)` 使用右开上界，两种表示对应同一内存范围。自检成功信息表明该构建中的检查函数已正常返回，本节不据此报告课程评分结果。
 
-#### 5.5.11 Buddy：5 页请求向上取整为 8 页
+#### 5.5.5 Buddy 容量取整、伙伴关系与受控区恢复
+
+切换配置前，先回到终端二按 Ctrl+C 暂停客户机，输入 `detach`、`quit` 退出 GDB；再切换到终端一，按 Ctrl+A 后按 X 退出 QEMU。这样可以保证后续加载的是 Buddy 构建的镜像与符号文件。
+
+在终端一重新编译并启动：
+
+```bash
+make clean
+make DEFS="-DLAB2_PMM_BUDDY -O0 -fno-inline"
+qemu-system-riscv64 \
+  -machine virt -m 128M -nographic \
+  -bios default -kernel bin/ucore.img \
+  -gdb tcp:127.0.0.1:1234 -S
+```
+
+终端二重新执行 `gdb-multiarch -q bin/kernel`，然后输入：
+
+```gdb
+set pagination off
+set confirm off
+set print pretty on
+set architecture riscv:rv64
+target remote 127.0.0.1:1234
+tbreak buddy_alloc_pages if n == 5
+continue
+p pmm_manager->name
+p n
+p buddy_max_order
+p buddy_nr_free
+set $buddy_before = buddy_nr_free
+finish
+set $buddy_allocated = (struct Page *)$a0
+p $buddy_allocated
+p *$buddy_allocated
+p $buddy_allocated->property
+p $buddy_before - buddy_nr_free
+p ($buddy_allocated->flags & 2) == 0
+```
+
+选择 5 页这一非 2 的幂请求，能够直接观察请求量与实际占用量的区别；条件断点使观察对象来自自检的真实调用。
 
 ![图 G11：Buddy 管理器及 5 页请求的实际容量](images/gdb-20261026/11-buddy-rounding.png)
 
-重新构建 Buddy 后，管理器名称为 `buddy_pmm_manager`，`buddy_max_order=15`，当前总空闲页为 31923。申请 5 页返回 `0xffffffffc0215480`，首页 `flags=0`、`property=8`，空闲总数减少 8。此时计算后的剩余空闲数为 31915，该数由截图中的基数和差值推得。
+切换至 Buddy 后，管理器名称为 `buddy_pmm_manager`，`buddy_max_order=15`，分配前空闲页数为 31923。申请 5 页返回首页 `0xffffffffc0215480`，其 `flags=0`、`property=8`，空闲总数减少 8。由此计算，分配后剩余 31915 个空闲页。
 
-`property=8` 在已分配块头上用于记录实际容量；是否为空闲块首页仍由 `PG_property` 标志判断，不能因 `property!=0` 就认为块空闲。与 Best-Fit 的恰好 5 页分配相比，此次按 8 页占用，产生 3 页的内部碎片。最大阶为 15 也不代表当前存在完整的 `2^15` 页空闲块。
+Buddy 将请求容量向上取整至 2 的幂，此次实际占用 8 页，相对于请求多占用 3 页。已分配块头保留 `property=8`，用于记录回收时应释放的实际容量，而 `PG_property` 位已清除；块长字段与空闲首页标志具有不同职责。`buddy_max_order` 给出允许的阶数上限，并不表示该阶当前存在可用块。
 
-#### 5.5.12 Buddy：异或寻找伙伴与回收计数
+在终端二以刚才返回的指针限定释放断点，保证跟踪的是同一个块。随后在伙伴插入函数停下，读取块阶数并计算伙伴下标：
+
+```gdb
+tbreak buddy_free_pages if base == $buddy_allocated
+continue
+p base
+p n
+set $buddy_free_before = buddy_nr_free
+tbreak buddy_insert_free_block
+continue
+p page
+p order
+p page->property
+set $block_index = (unsigned long)(page - pages)
+set $partner_index = $block_index ^ ((unsigned long)1 << order)
+p/d $block_index
+p/d $partner_index
+p npage - nbase
+```
+
+确认伙伴下标位于描述符范围内后，再读取该描述符并运行到函数返回：
+
+```gdb
+p pages[$partner_index]
+finish
+p buddy_nr_free - $buddy_free_before
+p buddy_nr_free == $buddy_before
+```
 
 ![图 G12：伙伴下标、伙伴状态与释放后计数](images/gdb-20261026/12-buddy-partner-and-free.png)
 
-归还上述块时进入 `buddy_insert_free_block`，当前 `order=3`、块长为 8 页，描述符下标为 848。计算伙伴下标：
+释放上述块时，在 `buddy_insert_free_block` 观察到 `order=3`、块长为 8 页，首页在描述符数组中的下标为 848。按伙伴计算规则：
 
 ```text
 buddy_index = 848 XOR (1 << 3) = 856
 ```
 
-856 小于描述符总数 32768，伙伴的 `flags=2`、`property=8`，表明它是同阶空闲块首页；还要依据源码继续检查边界、保留状态和每一轮伙伴条件。函数返回后，空闲总数增加 8，且与此次分配前的计数比较结果为 1，说明实际占用页全部归还。
+伙伴下标位于描述符范围内，其 `flags=2`、`property=8`，符合本次同阶空闲伙伴的状态。函数执行结束后，空闲总数增加 8，与分配前计数的等值比较返回 1，说明本次分配占用的页面已全部归还。图中通过 `finish` 观察函数返回后的结果，未记录每一轮递归合并的中间状态。
 
-该图展示的是伙伴查找与函数前后状态。`finish` 运行完函数，不等于逐次单步记录了所有合并迭代，因此不据此声称已截图覆盖每一轮 order 变化。
+受控测试选择 `buddy_split_check`，因为该函数建立单个 16 页的空闲测试区，块位置与阶数确定，适合排除全局空闲链表分布对观察的影响。若复现这一场景，可在终端二按以下顺序定位至最初 4 页块归还后的状态；该定位流程根据源码整理，现存图 G13 仅保留最后五条查询的结果：
 
-#### 5.5.13 Buddy：受控区恢复为 16 页块
+```gdb
+tbreak buddy_split_check
+continue
+set $arena_head = arena
+tbreak buddy_alloc_pages if n == 4
+continue
+finish
+tbreak buddy_free_pages if base == $arena_head && n == 4
+continue
+tbreak buddy_insert_free_block
+continue
+finish
+p $arena_head->property
+p buddy_nr_free
+p buddy_free_area[2].nr_free
+p buddy_free_area[3].nr_free
+p buddy_free_area[4].nr_free
+```
 
 ![图 G13：受控测试区合并后的阶分布](images/gdb-20261026/13-buddy-arena-restored.png)
 
-截图保留了受控测试后读取的状态：`arena_head->property=16`、`buddy_nr_free=16`、第 2/3 阶空闲页数均为 0、第 4 阶为空闲 16 页。这里使用自检隔离出的 16 页 arena，不能将 `buddy_nr_free=16` 解释为整台 128 MiB 机器只剩 16 页。
+在 16 页隔离测试区内，合并后读得 `arena_head->property=16`、`buddy_nr_free=16`；第 2、3 阶的空闲页数为 0，第 4 阶为空闲 16 页。这些值与测试区恢复为一个 16 页空闲块的预期一致。各阶 `nr_free` 统计的是页数，且此时计数对象为隔离测试区，并非整机全部空闲内存。
 
-这个终态与受控区恢复成一个 16 页块一致，说明这些阶的计数已回到预期状态。但本批截图没有保留“分配前单个 16 页块 → 分配 4 页 → 剩余 8 页与 4 页块”的连续中间画面，也没有 arena 起点和链表逐节点记录；因此它作为**合并恢复终态**证据，不独立充当完整拆分过程的逐步证据。
+图 G13 保存了合并恢复后的终态，未包含从 16 页块分配 4 页并形成 8 页、4 页剩余块的连续中间画面。因此，本图用于核对恢复后的块长与阶计数。
 
-#### 5.5.14 Buddy 自检结束及跨构建对照
+完成状态查询后，在终端二执行以下命令清除剩余观察断点并继续运行，再切换到终端一读取自检结果：
+
+```gdb
+delete breakpoints
+continue
+```
 
 ![图 G14：Buddy 布局与完整自检返回](images/gdb-20261026/14-buddy-self-check.png)
 
-串口确认 Buddy 输出 `check_alloc_page() succeeded!`，随后打印根表地址。其布局与 Best-Fit 对比如下：
+Buddy 串口同样输出 `check_alloc_page() succeeded!`。两种构建的布局对比如下。
 
 | 项目 | 本次 Best-Fit | 本次 Buddy |
 | --- | --- | --- |
@@ -1828,15 +2089,15 @@ buddy_index = 848 XOR (1 << 3) = 856
 | 描述符数量 / 字节数 | 32768 / 1310720 | 32768 / 1310720 |
 | 首个空闲页 PA | `0x80348000` | `0x8034d000` |
 | 初始空闲页数 | 31928 | 31923 |
-| 由总量减空闲量推导的保留页数 | 840 | 845 |
+| 由总页数减空闲页数计算的保留页数 | 840 | 845 |
 
-Buddy 构建包含不同代码和数据，描述符与空闲起点各后移 `0x5000`，即 5 页，正好解释两者空闲总数相差 5。两轮都采用自己的布局完成自检，不能将跨构建差值判断为内存泄漏，也不能将 5.2 节另一环境的 31929/31924 直接替换成本节数值。
+图 G10、G14 分别显示两种构建的内核占用约为 28 KiB、49 KiB，链接符号 `end` 分别为 `0xffffffffc0207078`、`0xffffffffc020c370`。按页对齐后，描述符数组起点相差 `0x5000`；由于数组大小相同，可用区间起点也相差 `0x5000`，即 5 页，恰好解释初始空闲页数的差值。该跨构建差异来自初始布局，各次分配与释放是否恢复计数则在各自运行中判断。
 
-#### 5.5.15 本轮核查结论与证据范围
+#### 5.5.6 实验结果与验证范围
 
-14 张截图及现存文本记录未发现相互冲突的地址、页数或分配回收结果。它们支持启动进入高地址、当前根页表映射核算、描述符布局和样本状态、Best-Fit 最佳选择及后继合并、Buddy 取整与伙伴回收、受控区合并终态以及两种管理器正常自检结束。
+本轮截图所记录的地址、块长和页数变化相互一致。启动阶段观察到 Bare 状态向高虚拟地址执行的转换，并核对了所选函数地址的根级页表映射；初始化阶段验证了描述符布局、空闲页计数与两个样本描述符的状态；分配器阶段观察到 Best-Fit 的分裂、最小适合块选择和后继合并，以及 Buddy 的容量取整、伙伴查找、回收计数与受控区恢复终态。两种构建均输出自检成功信息。
 
-本次没有新增证据证明宿主 QEMU 页表遍历/TLB 命中、初始化八类异常注入、Buddy 三种非法释放或新一轮课程评分。相关既有结果保留原日期与环境；若需要本轮完整的逐指令轨迹，应另补 Buddy 拆分中间截图和非空 GDB 日志，不能由命令指南或终态反推为已经保存的原始记录。
+本轮展示范围不包含 Buddy 拆分过程的连续中间状态、宿主 QEMU 页表遍历及 TLB 查询、初始化异常输入、非法释放测试或课程评分。相关历史测试仍按原有章节的日期和环境说明，本节结论限于所示调试场景。
 
 ## 六、实验总结与收获
 
@@ -1871,8 +2132,6 @@ lab2/
 └── report/
     ├── report.md          # 本实验报告
     ├── prompt.md          # 实验提示词汇编
-    ├── gdb-20261026.md    # 补充调试命令、顺序和材料索引
-    ├── logs/gdb-20261026/ # 本轮现存的三份原始文本输出
     └── images/           # 原六张测试截图及 gdb-20261026/ 下十四张调试截图
 ```
 
