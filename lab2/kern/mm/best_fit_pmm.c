@@ -4,10 +4,161 @@
 #include <stdio.h>
 
 //lab2 function2-2 2412591
+
 static free_area_t free_area;
 
 #define free_list (free_area.free_list)
 #define nr_free (free_area.nr_free)
+
+/* 初始化分配器：建立空闲块链表，并将空闲页总数清零。 */
+static void
+best_fit_init(void) {
+    list_init(&free_list);
+    nr_free = 0;
+}
+
+/*
+ * 将已设置首页标记和块长的空闲块按地址递增插入链表，
+ * 再与物理相邻的前后空闲块合并，清除失效首页的标记和块长。
+ * 空闲页计数由调用者更新，本函数只调整链表和块的组织方式。
+ */
+static void
+best_fit_insert_free_block(struct Page *base) {
+    list_entry_t *le = list_next(&free_list);
+    while (le != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (base < p) {
+            break;
+        }
+        le = list_next(le);
+    }
+    list_add_before(le, &(base->page_link));
+
+    le = list_prev(&(base->page_link));
+    if (le != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (p + p->property == base) {
+            p->property += base->property;
+            ClearPageProperty(base);
+            base->property = 0;
+            list_del(&(base->page_link));
+            base = p;
+        }
+    }
+
+    // 向前合并可能改变块首页，因此需要基于新的首页重新取得后继。
+    le = list_next(&(base->page_link));
+    if (le != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (base + base->property == p) {
+            base->property += p->property;
+            ClearPageProperty(p);
+            p->property = 0;
+            list_del(&(p->page_link));
+        }
+    }
+}
+
+/*
+ * 将 base 起始的连续 n 个保留页登记为可分配页：清除原状态，
+ * 重置引用计数，设置空闲块首页及长度，增加空闲页总数后插入并合并。
+ */
+static void
+best_fit_init_memmap(struct Page *base, size_t n) {
+    assert(n > 0);
+    struct Page *p = base;
+    for (; p != base + n; p ++) {
+        assert(PageReserved(p));
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
+    }
+    base->property = n;
+    SetPageProperty(base);
+    nr_free += n;
+    best_fit_insert_free_block(base);
+}
+
+/*
+ * 选择能容纳 n 页的最小空闲块；长度相同时选择地址最低者，
+ * 精确匹配时可提前结束搜索。分配块的前 n 页，将剩余部分留在链表中，
+ * 更新首页标记和空闲页计数，返回已分配区间的首页描述符。
+ * 若总页数不足或不存在足够大的连续块，则返回 NULL，保持状态不变。
+ */
+static struct Page *
+best_fit_alloc_pages(size_t n) {
+    assert(n > 0);
+    if (n > nr_free) {
+        return NULL;
+    }
+
+    struct Page *page = NULL;
+    list_entry_t *le = &free_list;
+    while ((le = list_next(le)) != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        // 链表按地址递增，仅在块更小时替换候选，保证同长度时选择最低地址。
+        if (p->property >= n &&
+            (page == NULL || p->property < page->property)) {
+            page = p;
+            if (p->property == n) {
+                break;
+            }
+        }
+    }
+    if (page == NULL) {
+        return NULL;
+    }
+
+    list_entry_t *prev = list_prev(&(page->page_link));
+    list_del(&(page->page_link));
+    if (page->property > n) {
+        struct Page *remainder = page + n;
+        remainder->property = page->property - n;
+        SetPageProperty(remainder);
+        list_add(prev, &(remainder->page_link));
+    }
+    ClearPageProperty(page);
+    page->property = 0;
+    nr_free -= n;
+    return page;
+}
+
+/*
+ * 释放 base 起始的连续 n 个已分配页：检查页面状态并重置元数据，
+ * 建立空闲块、增加空闲页总数，再按地址插入并合并相邻空闲块。
+ * 调用者须保证释放范围有效，且不包含保留页或已经空闲的页面。
+ */
+static void
+best_fit_free_pages(struct Page *base, size_t n) {
+    assert(n > 0);
+    struct Page *p = base;
+    for (; p != base + n; p ++) {
+        assert(!PageReserved(p) && !PageProperty(p));
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
+    }
+    base->property = n;
+    SetPageProperty(base);
+    nr_free += n;
+    best_fit_insert_free_block(base);
+}
+
+/* 返回当前空闲页总数，不改变分配器状态。 */
+static size_t
+best_fit_nr_free_pages(void) {
+    return nr_free;
+}
+
+static void best_fit_check(void);
+
+const struct pmm_manager best_fit_pmm_manager = {
+    .name = "best_fit_pmm_manager",
+    .init = best_fit_init,
+    .init_memmap = best_fit_init_memmap,
+    .alloc_pages = best_fit_alloc_pages,
+    .free_pages = best_fit_free_pages,
+    .nr_free_pages = best_fit_nr_free_pages,
+    .check = best_fit_check,
+};
 
 // Framework tests: students must not modify basic_check or best_fit_check.
 static void
