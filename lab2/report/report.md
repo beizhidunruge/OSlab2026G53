@@ -1677,9 +1677,9 @@ HOST_MMU_PASS
 
 QEMU 配置为 `virt` 机型、128 MiB 内存，通过 `-kernel bin/ucore.img` 加载内核。`gdb-multiarch` 加载同次构建的 `bin/kernel`，连接 QEMU 的客户机调试端口，使用断点、反汇编、寄存器查询及函数返回前后的状态比较完成观察。截图未包含工具版本查询，故不沿用第 5.2 节集成测试的具体版本信息。
 
-本轮调试关注客户机内核的执行状态及启动页表。宿主 QEMU 中的地址翻译与软件 TLB 行为仍参见第四节和第 5.4 节的历史实验记录，两轮结果分别讨论。
+本轮调试关注客户机内核的执行状态及启动页表。后续补充的宿主 QEMU 地址翻译与软件 TLB 填充实验见第 5.6 节；第四节和第 5.4 节保留此前的历史实验记录。
 
-为明确不同调试层次，终端职责划分如下。本节图 G1—G14 对应终端一与终端二；终端三用于宿主源码调试，未包含在本轮截图中。
+为明确不同调试层次，终端职责划分如下。本节图 G1—G14 对应终端一与终端二；终端三用于宿主源码调试，其补充截图见第 5.6 节。
 
 | 终端 | 运行对象与职责 | 执行控制的含义 |
 | --- | --- | --- |
@@ -2098,6 +2098,228 @@ Buddy 串口同样输出 `check_alloc_page() succeeded!`。两种构建的布局
 本轮截图所记录的地址、块长和页数变化相互一致。启动阶段观察到 Bare 状态向高虚拟地址执行的转换，并核对了所选函数地址的根级页表映射；初始化阶段验证了描述符布局、空闲页计数与两个样本描述符的状态；分配器阶段观察到 Best-Fit 的分裂、最小适合块选择和后继合并，以及 Buddy 的容量取整、伙伴查找、回收计数与受控区恢复终态。两种构建均输出自检成功信息。
 
 
+### 5.6 宿主 QEMU 地址翻译与软件 TLB 填充调试（2026-10-27）
+
+本次实验将客户机的一条实际存储指令与宿主 QEMU 的地址翻译调用对应起来，分别观察 Bare 和 Sv39 两种状态。图 H1—H7 为本次保存的七张截图，其中 H1、H4、H7 来自客户机 GDB，其余来自宿主 GDB。页表遍历的中间变量另依据本次调试时逐条保存于对话中的命令输出整理，并在下文标明；本节不依赖已删除的日志文件。
+
+#### 5.6.1 三个终端的准备与执行顺序
+
+终端一运行带调试符号的 QEMU 4.1.1，终端二用 `gdb-multiarch` 调试 RISC-V 内核，终端三用宿主 `gdb` 附加到 QEMU 进程。宿主源码位于 `/mnt/d/操作系统/Lab2-A/lab2/_local/qemu-4.1.1`，可执行文件位于同级的 `qemu-build/riscv64-softmmu/`。它们是本地工具目录，不属于报告附件。内核来自 `/mnt/d/操作系统/OSlab2026G53/lab2/code` 的 Best-Fit 调试构建；以下地址仅适用于截图中的镜像。
+
+下列命令按实际调试流程整理，用于复现各观察点。先结束已有 QEMU 会话，避免复用旧进程或占用 1234 端口。在终端一启动虚拟机：
+
+```bash
+cd /mnt/d/操作系统/OSlab2026G53/lab2/code
+/mnt/d/操作系统/Lab2-A/lab2/_local/qemu-build/riscv64-softmmu/qemu-system-riscv64 \
+  -machine virt -m 128M -nographic \
+  -bios default -kernel bin/ucore.img \
+  -gdb tcp:127.0.0.1:1234 -S \
+  -pidfile /tmp/lab2-qemu-hostdebug.pid
+```
+
+终端二加载与镜像配套的符号文件并连接客户机：
+
+```bash
+cd /mnt/d/操作系统/OSlab2026G53/lab2/code
+gdb-multiarch -q bin/kernel
+```
+
+```gdb
+set pagination off
+set architecture riscv:rv64
+target remote 127.0.0.1:1234
+thbreak *0x80200008
+continue
+```
+
+选择 `0x80200008` 是因为本次反汇编在此处显示 `sd a0,0(t0)`，用于保存启动 hart ID。断点停在存储执行前，便于取得实际地址并为宿主设置条件断点。重新构建后，应先在入口停下并反汇编，重新确认指令地址。
+
+终端三附加到终端一对应的进程：
+
+```bash
+sudo gdb -q -nx \
+  /mnt/d/操作系统/Lab2-A/lab2/_local/qemu-build/riscv64-softmmu/qemu-system-riscv64 \
+  -p "$(cat /tmp/lab2-qemu-hostdebug.pid)"
+```
+
+本次普通用户执行 `attach` 时受到 `ptrace` 权限限制，改用上述命令后成功附加。附加时停在 `ppoll` 且提示缺少 glibc 源文件，不影响随后在已具备源码和符号的 QEMU 函数中调试。
+
+终端切换只改变输入位置。每次应先在终端三设置宿主断点并执行 `continue`，使 QEMU 进程恢复运行，再在终端二执行 `si` 触发客户机访存。宿主断点命中后，终端二的单步请求可能仍在等待；应在终端三完成观察并继续运行后，再等待终端二返回提示符。只有出现 `(gdb)` 提示符时才输入下一条命令。
+
+#### 5.6.2 Bare 状态下的存储与 TLB 填充
+
+在终端二的存储指令断点处查询：
+
+```gdb
+x/i $pc
+info registers pc t0 a0
+p/x $satp
+```
+
+![图 H1：Bare 状态下保存 hart ID 的客户机存储指令](images/host-gdb-20261027/01-bare-guest-store.png)
+
+图 H1 显示 `PC=0x80200008`，指令为 `sd a0,0(t0)`，`t0=0x80207000`、`a0=0`、`satp=0`。因此此次操作是向客户机地址 `0x80207000` 写入 8 字节的零值，尚未启用 Sv39。
+
+在终端三设置条件断点并恢复宿主，然后切换到终端二执行一次 `si`：
+
+```gdb
+set pagination off
+break get_physical_address if addr == 0x80207000 && access_type == 1 && mmu_idx == 1
+continue
+```
+
+断下后在终端三检查调用栈与参数：
+
+```gdb
+bt 7
+p/x addr
+p/x env->satp
+```
+
+![图 H2：Bare 存储进入 QEMU 地址翻译慢路径](images/host-gdb-20261027/02-bare-host-translation.png)
+
+调用栈由 TCG 生成代码进入 `helper_le_stq_mmu → store_helper → tlb_fill → riscv_cpu_tlb_fill → get_physical_address`。`size=8` 与客户机的 `sd` 对应；`access_type=1` 对应 `MMU_DATA_STORE`，`mmu_idx=1` 对应本次 S 模式访问。地址与图 H1 一致，说明该断点来自所选客户机存储。写访问条件也排除了调试器读取内存所产生的读访问。
+
+根据 `cpu_helper.c`，此处 S 模式不会进入 M 模式的直接返回分支，而是在解析 `satp.MODE=0` 后进入 Bare 分支，将输入地址作为物理地址返回。随后在终端三观察填充入口：
+
+```gdb
+tbreak tlb_set_page_with_attrs if vaddr == 0x80207000 && mmu_idx == 1
+continue
+bt 5
+p/x vaddr
+p/x paddr
+p/x size
+```
+
+![图 H3：Bare 地址的恒等映射进入软件 TLB 填充函数](images/host-gdb-20261027/03-bare-tlb-fill.png)
+
+图 H3 中 `vaddr=paddr=0x80207000`，`size=0x1000`，`prot=7`。Bare 不查 Sv39 页表，但 QEMU 仍通过软件 TLB 保存快速访问信息，以便将客户机地址关联到宿主内存。这里的恒等关系仅指客户机虚拟地址与客户机物理地址，不能将其解释为宿主进程中的指针地址。
+
+#### 5.6.3 Sv39 状态下选取 BSS 清零指令
+
+在终端三执行 `continue`，等待终端二的单步返回。终端二随后定位 `memset`：
+
+```gdb
+thbreak memset
+continue
+disassemble /r memset
+thbreak *0xffffffffc0202626
+continue
+x/i $pc
+info registers pc a5 a4 satp
+p/x &edata
+```
+
+本次反汇编显示 `memset+46` 即 `0xffffffffc0202626` 为 `sb a4,0(a5)`。选取循环体中的字节存储，可以将实际写入地址与 `kern_init()` 中的 `memset(edata, 0, end - edata)` 对应起来；函数入口还包含保存寄存器等栈访问，不宜直接当作 BSS 写入现场。
+
+![图 H4：Sv39 状态下向 BSS 起点写入零字节](images/host-gdb-20261027/04-sv39-guest-store.png)
+
+图 H4 显示 `a5=&edata=0xffffffffc0207018`、`a4=0`、`satp=0x8000000000080206`。该存储写入一个零字节，MODE 为 8，即 Sv39。GDB 将 BSS 起点显示为同地址的 `free_area` 符号，不代表此时已进入分配器初始化。图中的局部变量 `n=95` 与原始长度 96 字节并不矛盾：进入第一次循环体前，`while (n-- > 0)` 已对局部计数执行一次递减。
+
+保持终端二停在存储前，在终端三按 Ctrl+C 暂停宿主进程，添加新的条件断点并继续：
+
+```gdb
+break get_physical_address if addr == 0xffffffffc0207018 && access_type == 1 && mmu_idx == 1
+continue
+```
+
+再切换到终端二执行 `si`。宿主命中后，在终端三查询：
+
+```gdb
+bt 7
+p/x addr
+p access_type
+p mmu_idx
+p/x env->satp
+```
+
+![图 H5：Sv39 字节写入触发地址翻译](images/host-gdb-20261027/05-sv39-host-translation.png)
+
+图 H5 的 `helper_ret_stb_mmu`、`size=1` 和 `val=0` 与图 H4 的 `sb` 一致。实际数据访问进入 `tlb_fill` 慢路径后调用地址翻译函数；这不是客户机发生了缺页异常，成功翻译后仍可继续执行原指令。
+
+#### 5.6.4 根级叶子项与物理页基址
+
+在终端三用 `next` 推进到相应赋值语句执行之后，再读取局部变量。本次文字调试记录得到以下数值，七张截图未单独保存这一组中间状态：
+
+| 观察量 | 本次结果 | 含义 |
+| --- | --- | --- |
+| `mode`、`vm` | 1、8 | S 模式、Sv39 |
+| `base` | `0x80206000` | 根页表物理地址，由 satp 的 PPN 左移 12 位得到 |
+| `levels`、`ptidxbits`、`ptesize` | 3、9、8 | 最多三级、每级索引 9 位、每项 8 字节 |
+| `i`、`ptshift` | 0、18 | 从根级开始；低两级 VPN 共 18 位 |
+| `pte_addr` | `0x80206ff8` | 根表第 511 项的物理地址 |
+| `pte`、`ppn` | `0x200000cf`、`0x80000` | 读出的页表项及其 PPN |
+| `*physical` | `0x80207000` | 翻译函数输出的物理页基址 |
+
+根级索引按 `(addr >> 30) & 0x1ff` 计算为 511，故 PTE 地址为 `0x80206000 + 511 × 8 = 0x80206ff8`。本次在初始化尚未完成时查询 `idx` 曾读到无效旧值，随后宿主指令执行中的 `rax=0x1ff` 与上述计算吻合；已完成赋值的 `pte_addr` 也验证了索引结果。
+
+在本地 QEMU 4.1.1 源码中，可按以下顺序推进到读取和计算完成的位置：
+
+```gdb
+until 252
+next
+p/x pte
+next
+p/x ppn
+p i
+until 334
+next
+p/x *physical
+```
+
+第 252 行调用 `ldq_phys(cs->as, pte_addr)`，`next` 后停在第 254 行时，`pte` 已读出，但 `ppn` 尚未赋值。再执行一次 `next` 才能读取 `ppn`。类似地，第 334 行执行之后才能读取 `*physical`。`list` 只显示源码，不推进程序；停在某行通常表示该行的语句即将执行。上述行号适用于本次 QEMU 源文件，换版本后应按语句重新定位。
+
+PTE 低位 `0xcf` 表示 V、R、W、X、A、D 置位，U 未置位。该项在根级已具备读写执行权限，是 1 GiB 叶子映射，不需要继续查下两级页表。`ppn & ((1 << 18) - 1) = 0` 满足超级页对齐要求；本次 S 模式写访问具备权限，且 A/D 已置位，无需进入页表项原子更新分支。
+
+第 334 行的计算为：
+
+```text
+vpn = 0xffffffffc0207018 >> 12
+vpn & ((1 << 18) - 1) = 0x207
+physical_page = (0x80000 | 0x207) << 12 = 0x80207000
+page_offset = 0x18
+完整客户机物理地址 = 0x80207000 + 0x18 = 0x80207018
+```
+
+`*physical` 是该 Sv39 路径返回的页基址；函数本身的整型返回值表示翻译是否成功。完整物理地址也等于客户机 VA 减去固定偏移 `0xffffffff40000000`，与启动汇编建立的映射一致。
+
+#### 5.6.5 TLB 填充参数与客户机恢复执行
+
+在终端三的翻译函数返回前设置填充断点：
+
+```gdb
+tbreak tlb_set_page_with_attrs if paddr == 0x80207000 && mmu_idx == 1
+continue
+info args
+```
+
+![图 H6：Sv39 翻译结果进入软件 TLB 填充入口](images/host-gdb-20261027/06-sv39-tlb-fill.png)
+
+图 H6 的十进制参数转换为十六进制后为：
+
+| 参数 | 本次值 | 解释 |
+| --- | --- | --- |
+| `vaddr` | `0xffffffffc0207000` | 客户机访问地址向下对齐到 4 KiB |
+| `paddr` | `0x80207000` | 本次翻译得到的物理页基址 |
+| `prot` | 7 | QEMU 的读、写、执行权限组合 |
+| `mmu_idx` | 1 | 本次 S 模式访问使用的 MMU 索引 |
+| `size` | 4096 | 本次软件 TLB 填充调用的页粒度 |
+
+`riscv_cpu_tlb_fill()` 在翻译成功后，以 `address & TARGET_PAGE_MASK`、`pa & TARGET_PAGE_MASK` 和 `TARGET_PAGE_SIZE` 调用 `tlb_set_page()`，随后进入图中的函数。因此，根级叶子映射范围为 1 GiB 与该填充调用的 4 KiB 粒度并不矛盾：前者是客户机页表的映射范围，后者是这个 QEMU 实现为当前访问建立软件缓存的粒度。
+
+图 H6 保存的是填充函数入口参数，尚不是读取已写入 TLB 项的截图。在终端三执行 `continue` 后，终端二的单步完成，查询客户机现场：
+
+```gdb
+x/8i $pc
+info registers pc a0 a1 a2
+```
+
+![图 H7：地址翻译和填充路径返回后，客户机推进到下一条指令](images/host-gdb-20261027/07-guest-store-completed.png)
+
+图 H7 中 PC 从存储指令 `0xffffffffc0202626` 推进到 `0xffffffffc020262a`，当前指令为 `ld a5,-56(s0)`，对应下一轮循环条件的计数读取。它与图 H4 构成一次存储前后的执行位置对照。`a0=0xffffffffc0207018`、`a1=0`、`a2=0x60` 与本次 `memset` 的初始参数一致；循环中的剩余计数已保存在栈上，不能把仍为 96 的 `a2` 当作当前剩余字节数。
+
+本次证据覆盖 Bare 恒等翻译、Sv39 根级叶子解析、物理页基址计算、软件 TLB 填充入口及客户机单步返回。它未直接记录后续访问的 TLB 命中快路径，也未检查本次填充后的内部标签或 `addend` 字段，因此不据此声称“第二次数据写已命中 TLB”。第 5.4 节的历史取指命中记录仍属于另一组实验。此次未重新运行课程评分或分配器测试。
+
 ## 六、实验总结与收获
 
 ### 6.1 对操作系统的理解
@@ -2131,7 +2353,7 @@ lab2/
 └── report/
     ├── report.md          # 本实验报告
     ├── prompt.md          # 实验提示词汇编
-    └── images/           # 原六张测试截图及 gdb十四张调试截图
+    └── images/            # 六张测试截图、gdb-20261026/ 十四张及 host-gdb-20261027/ 七张调试截图
 ```
 
 全部提示词见 [prompt.md](prompt.md)。最终代码位于 `../code/`，默认 Best-Fit，Buddy 通过 `LAB2_PMM_BUDDY` 选择。
