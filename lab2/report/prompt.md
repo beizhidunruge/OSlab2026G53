@@ -421,49 +421,195 @@ static size_t best_fit_nr_free_pages(void);
 
 ````markdown
 ## [PROMPT]
-参考当前 ucore 框架，从零实现 Buddy System 物理页分配模块并接入内核。
-保留标准的多阶空闲链表，以设计直观、容易解释为目标，不为压缩行数增加复杂结构。
-新增 buddy_pmm.c、buddy_pmm.h，并在 pmm.c 中完成必要的管理器选择。
-若这些文件和接入已经存在，则在原有位置修改。
-不要修改 page_init()、公共数据结构、First-Fit、Best-Fit 或它们的测试。
-本阶段实现分配算法，buddy_check() 暂留空，后续单独实现测试。
+
+**一、任务**
+完成 Buddy System 物理页分配模块：
+
+- `kern/mm/buddy_pmm.c`：实现初始化、登记可用页、分配、释放、伙伴合并和空闲页统计。
+- `kern/mm/buddy_pmm.h`：声明 `buddy_pmm_manager`。
+- `kern/mm/pmm.c`：选择 `buddy_pmm_manager`，使内核能够通过原有接口调用 Buddy。
+
+块大小为二次幂，采用多阶空闲链表，只维护一个总空闲页计数。
+
+**二、操作要求**
+1. 必须在项目中修改实际文件。先阅读相关源文件、`pmm.h`、`memlayout.h`、`mmu.h`、`libs/list.h`、`default_pmm.c` 和 `Makefile`，以工程中的接口为准。
+
+2. 修改范围为 Buddy 文件和 `pmm.c` 中管理器接入的部分。公共结构、内存布局、`page_init()`、启动代码、其他分配算法和已有测试保持原样。
+
+3. 函数开头说明实现思路，函数体注释关键过程，详略适当。
+
+**三、输出要求**
+按照下面的上下文、接口和行为要求完成修改，说明修改了哪些文件，以及实际编译运行结果。内核应输出 `memory management: buddy_pmm_manager`。
 
 ## [RELY]
-先阅读 pmm.c、pmm.h、memlayout.h、mmu.h、libs/list.h、default_pmm.c 和 Makefile。
-pmm_manager 提供 init、init_memmap、alloc_pages、free_pages、nr_free_pages、check。
-pages 描述从物理页号 nbase 开始的页面，描述符数量为 npage-nbase。
-使用 page-pages 的全局下标判断对齐及伙伴关系。
-当前平台 nbase 按所有支持的块大小对齐，管理上限128 MiB，页大小4 KiB。
-page_init() 在初始化管理器后登记一次连续可用区间，输入页带 PG_reserved。
+
+**1. 管理器接口**
+`kern/mm/pmm.h` 中定义：
+
+```c
+struct pmm_manager {
+    const char *name;
+    void (*init)(void);
+    void (*init_memmap)(struct Page *base, size_t n);
+    struct Page *(*alloc_pages)(size_t n);
+    void (*free_pages)(struct Page *base, size_t n);
+    size_t (*nr_free_pages)(void);
+    void (*check)(void);
+};
+```
+
+内核选择并初始化管理器后，`page_init()` 登记可用页，`check_alloc_page()` 调用管理器的 `check()`。当前 `page_init()` 登记一次连续可用区间，输入页均带保留标志。
+
+**2. 页面描述符和状态**
+`kern/mm/memlayout.h` 中定义：
+
+```c
+struct Page {
+    int ref;
+    uint64_t flags;
+    unsigned int property;
+    list_entry_t page_link;
+};
+```
+
+我们使用以下状态约定：
+
+| 页面状态 | `PG_property` | `property` |
+|---|---|---|
+| 空闲块首页 | 1 | 实际块大小 `2^k` |
+| 已分配块首页 | 0 | 实际块大小 `2^k` |
+| 块内其他页 | 0 | 0 |
+
+`PageReserved`、`PageProperty` 及其设置、清除宏用于页面标志；`page_ref()`、`set_page_ref()` 用于引用计数。
+
+**3. 页面范围和伙伴关系**
+```c
+extern struct Page *pages;
+extern size_t npage;
+extern const size_t nbase;
+
+static inline ppn_t page2ppn(struct Page *page) {
+    return page - pages + nbase;
+}
+```
+
+`npage` 为物理页号上界，Page 数组长度为 `npage - nbase`。有效物理页号为 `[nbase, npage)`。
+
+块的对齐我们使用 `page - pages` 的全局下标 `index`，条件为 `index % size == 0`；伙伴下标为 `index ^ size`。当前 `nbase = 0x80000 = 2^19`，页大小4 KiB，内存管理上限128 MiB，最高阶15，全局下标的对齐与物理页号对齐等价。
+
+当前 `max_order` 表示可调整的最高阶，正常为15。
+
+**4. 可用接口**
+`libs/list.h` 提供 `list_entry_t`、`list_init()`、`list_add()`、`list_del_init()`、`list_empty()`、`list_next()` 等接口；`le2page(le, page_link)` 得到节点对应的 Page。
+
+非法调用使用 `assert()` 拒绝，合法请求因资源不足而失败时返回 `NULL`。
 
 ## [GUARANTEE]
-实现以下静态函数并定义 buddy_pmm_manager：
-buddy_init(void)
-buddy_init_memmap(struct Page *base, size_t n)
-buddy_alloc_pages(size_t n)
-buddy_free_pages(struct Page *base, size_t n)
-buddy_nr_free_pages(void)
-头文件声明 extern const struct pmm_manager buddy_pmm_manager。
-各阶只维护链表，只保留一个总空闲页计数；正常最高阶15。
-保留可临时调整的最高阶变量，供后续16页受控测试使用。
-函数头概括实现思路，函数体只注释关键阶段，不逐句复述代码。
+
+实现以下主要接口：
+
+```c
+static void buddy_init(void);
+static void buddy_init_memmap(struct Page *base, size_t n);
+static struct Page *buddy_alloc_pages(size_t n);
+static void buddy_free_pages(struct Page *base, size_t n);
+static size_t buddy_nr_free_pages(void);
+```
+
+在 `buddy_pmm.c` 中定义并初始化 `const struct pmm_manager buddy_pmm_manager`，各成员对应 buddy 接口；在 `buddy_pmm.h` 中声明：
+
+```c
+extern const struct pmm_manager buddy_pmm_manager;
+```
+
+`pmm.c` 中涉及的接入函数为：
+
+```c
+static void init_pmm_manager(void);
+```
+
+可以添加必要的 `static` 辅助函数，作用域限于本模块。对链表插入和删除都是从头插入和删除。
 
 ## [SPECIFICATION]
-1. 状态约定：空闲块头 PG_property=1、property=实际块页数；已分配块头
-   PG_property=0，但保留实际大小；块内其他页的 property=0。
-2. buddy_init：清空所有阶链表、总计数和测试遗留状态，不访问尚未登记的物理页。
-3. buddy_init_memmap：检查范围及保留页状态，初始化页信息；将输入区间划分为
-   大小为二次幂、起点按自身大小对齐的块，完整登记 n 页，不丢弃尾部页面。
-   根据当前单次连续区间的调用方式实现，不增加跨次登记自动合并的要求。
-4. buddy_alloc_pages：n>0；取整到最小可容纳阶，从该阶向上选第一条非空链表；
-   取下块后逐级分裂，保留前半块、挂回后半块；记录实际大小并扣除实际页数。
-   没有块或请求过大时返回 NULL，且不改变状态；超大输入不能造成移位溢出。
-5. buddy_free_pages：n>0；取整后校验范围、对齐、未释放状态及实际块大小。
-   清理原块并增加本次实际归还页数，以 index XOR size 寻找同阶空闲伙伴。
-   可合并时摘下伙伴、清除旧块头、保留低地址块头并继续向上合并。
-   伙伴越界、保留、已分配或大小不同则停止；合并不重复增加计数。
-6. buddy_nr_free_pages：返回总空闲页数。
-7. 使用现有工程工具链编译，确认内核选择 buddy_pmm_manager。
+
+### 1. `buddy_init(void)`
+
+**Pre-Condition**
+- 内核已选择 buddy。
+
+**Post-Condition**
+- 各阶链表为空，总空闲页数为0，最高阶为15，可以登记可用页。
+
+### 2. `buddy_init_memmap(struct Page *base, size_t n)`
+
+**Pre-Condition**
+- 管理器已初始化，`n > 0`，`[base, base+n)` 在描述符范围内，输入页均为尚未登记的可用保留页。
+
+**Post-Condition**
+- 输入的 `n` 页全部登记为空闲页，各块互不重叠，大小为二次幂，首页按自身大小对齐，挂在对应阶链表。
+- 引用计数为0，页面状态符合前面的约定，空闲页数增加 `n`。
+
+**Case 1：区间符合完整块要求**
+起点对齐、长度为二次幂且在支持范围内时，登记为对应阶的完整块。
+
+**Case 2：起点或长度需要划分**
+区间登记为多个符合大小、对齐和范围要求的块。例如在按16页对齐的 `base` 上登记 `[base+3, base+16)`，应得到 `[3,4)`、`[4,8)`、`[8,16)` 的1、4、8页块，合计13页。
+
+**Case 3：输入非法**
+空指针、零页数、范围越界或者输入页已登记时，触发断言。
+
+### 3. `buddy_alloc_pages(size_t n)`
+
+**Pre-Condition**
+- 管理器已初始化，`n > 0`，各阶链表和计数正确。
+
+**Post-Condition**
+- 成功时返回分配块首页，实际大小为容纳 `n` 的最小二次幂，首页按实际大小对齐。
+- 分配块已从空闲链表移除，首页空闲标志清除，`property` 记录实际大小，总空闲页数减少实际分配页数。
+- 各分配块互不重叠。
+
+- 失败时返回 `NULL`，空闲块、页面状态和计数保持不变。
+
+**Case 1：目标阶有空闲块**
+实际分配大小等于目标阶大小。
+
+**Case 2：只有更高阶空闲块**
+使用能够满足请求的最小可用阶。递归对半拆分，分出来的空闲块，挂在对应阶链表。
+
+**Case 3：没有满足请求的块**
+无空闲页、总空闲页数不足，或者总数足够但没有合法大块时，返回 `NULL`。
+
+**Case 4：请求超过上限或输入非法**
+请求超过当前最高阶容量，包括 `(size_t)-1` 等超大值时，返回 `NULL`，计算和访问保持在有效范围内。`n == 0` 触发断言。
+
+### 4. `buddy_free_pages(struct Page *base, size_t n)`
+
+**Pre-Condition**
+- `base` 是尚未释放的分配块首页，`n > 0`，`n` 向上取整后的大小与首页记录的实际大小相等。
+
+**Post-Condition**
+- 整个实际分配块变为空闲页，引用计数和块内描述符的数据清零，最终块头的标志、大小和所属阶正确。
+- 空闲页数只增加本次实际归还的页数，合并不重复计数，其他已分配块保持原样。
+
+**Case 1：存在可合并伙伴**
+两个同阶空闲伙伴形成更大的空闲块；更高阶仍有合法空闲伙伴时继续合并，直到达最高阶。合并块以最低地址为首页，链表上原来的低阶节点已经移除，其余块块首标志和大小清零。
+
+**Case 2：伙伴条件不满足**
+伙伴越界、为保留页、已被分配或者大小不同时，不做操作。两个块相邻时，也要满足同阶伙伴关系才能合并。
+
+**Case 3：原始申请页数不是二次幂**
+向上取二次幂整。例如申请3页实际占4页，按3页释放应完整归还4页。
+
+**Case 4：释放调用非法**
+空指针、零页数、请求超过支持阶、范围越界、首页不对齐、释放保留页、重复释放或者取整大小与记录大小不相等时，触发断言。
+
+### 5. `buddy_nr_free_pages(void)`
+
+**Pre-Condition**
+- 管理器已初始化。
+
+**Post-Condition**
+- 返回总空闲物理页数。
 ````
 
 <a id="buddy-test-prompt"></a>
@@ -472,46 +618,142 @@ buddy_nr_free_pages(void)
 
 ````markdown
 ## [PROMPT]
-针对现有 Buddy 分配器实现 buddy_check() 和必要的静态测试辅助函数。
-参考 First-Fit、Best-Fit 的 check 保存和恢复真实状态，但按 Buddy 的完整块释放约定设计案例。
-核心行为都要有明确检查点；同一性质适当验证，不增加重复参数枚举或测试框架。
-仅修改 buddy_pmm.c 中的测试部分及必要的 check 绑定，不修改分配、释放算法。
+
+**一、任务**
+在 `kern/mm/buddy_pmm.c` 中实现 buddy 测试，验证初始化、分配、释放、分裂、合并、计数和关键边界。
+
+参考 First-Fit 和 Best-Fit 的 check，使用16页区域检查。同一性质适当验证，核心行为和重要的边界条件都要有对应的检查条件。
+
+**二、操作要求**
+1. 必须在项目中修改实际文件，不要阅读buddy的实现，了解相关接口就行，按照buddy的行为设计测试，先阅读相关头文件和已有 check。修改范围为check()函数、必要的静态测试辅助函数和 `.check` 绑定，分配算法和其他模块保持原样。发现问题时说明具体断言和原因。
+
+2. 使用框架中的 `assert()` 检查预期。测试范围为实际借出的16页。测试中最高阶设定为4，测试完成后恢复原样。
+
+3. 函数开头写实现思路，函数体说明几个步骤或者一组操作检查了什么，详略适当。
+
+**三、输出要求**
+按照下面的上下文、接口和行为要求修改，说明测试覆盖了哪些核心行为和边界，以及预期为什么能够验证这些行为，并记录实际编译运行结果。
+
+正常模式应输出 `check_alloc_page() succeeded!`；两种非法释放模式应分别触发目标断言。
 
 ## [RELY]
-先阅读 buddy_pmm.c、pmm.h、memlayout.h、libs/list.h 和已有 check。
-free_list[k] 管理 2^k 页块，nr_free 是总空闲页数，max_order 是当前最高阶。
-已分配块头 property 保存实际大小，PG_property 清除；释放时按取整大小核对。
-分裂保留前半块、后半块挂链，因此受控布局下可确定返回地址。
-内核通过 pmm_manager->check() 调用 buddy_check()。
+
+**1. 当前 Buddy 状态**
+```c
+#define BUDDY_MAX_ORDER 15
+static list_entry_t free_list[BUDDY_MAX_ORDER + 1];
+static size_t nr_free;
+static unsigned int max_order;
+```
+
+`free_list[k]` 保存第 `k` 阶空闲块，大小为 `2^k`；`nr_free` 是总空闲页数，`max_order` 是当前最高阶，正常为15。
+
+空闲块首页的 `PG_property` 为1，`property` 为实际大小；已分配块首页的标志为0，property为分配大小；块内其他页的 `property` 为0。当前从一个大块分裂分配时，分配结果在低地址部分，余块在高地址部分。
+
+释放要求首页按自身大小对齐，释放请求取整后与自身大小相等。伙伴关系使用全局下标，合并条件涉及伙伴 Page 的标志和大小。
+
+**2. 描述符和可用接口**
+```c
+struct Page {
+    int ref;
+    uint64_t flags;
+    unsigned int property;
+    list_entry_t page_link;
+};
+
+struct Page *alloc_pages(size_t n);
+void free_pages(struct Page *base, size_t n);
+size_t nr_free_pages(void);
+
+#define alloc_page() alloc_pages(1)
+#define free_page(page) free_pages(page, 1)
+```
+
+`pages` 指向描述符数组，长度为 `npage - nbase`，`page2ppn(page) = page - pages + nbase`。当前 `nbase = 0x80000`，满足支持块大小的对齐要求。
+
+可以使用页面标志、引用计数和链表接口。`buddy_init_memmap()` 要求输入页尚未登记且带保留标志。
+
+**3. 测试调用**
+`check_alloc_page()` 通过 `pmm_manager->check()` 调用测试，正常返回后输出成功信息。断言失败会停止内核，因此两项错误调用分别启动验证。
+
+测试通过 `BUDDY_ILLEGAL_FREE_TEST` 选择模式：0为正常测试，1为释放大小不匹配，3为释放首页未对齐。可以通过 Makefile 的 `DEFS` 选择。
 
 ## [GUARANTEE]
-使用 assert 检查结果，正常模式测试结束后完整恢复真实分配器状态。
-可以实现 buddy_basic_check(base)、buddy_check_block(page, order)、buddy_prepare_memmap(base)。
-统一复用从真实分配器借出的16页区域，保存各阶链表头、计数和最高阶。
-清空测试链表并将最高阶临时设为4，避免区域向外合并。
-恢复时先放回真实状态，再归还16页；仅在最后统一遍历全局链表。
-函数头写实现思路，函数体按场景写关键操作与检验目的，详略适当。
+
+实现以下测试函数：
+
+```c
+static void buddy_basic_check(struct Page *base);
+static void buddy_check(void);
+```
+
+`buddy_pmm_manager.check` 对应 `buddy_check()`。可以添加必要的 `static` 测试辅助函数，作用域限于本模块。
 
 ## [SPECIFICATION]
-1. 完整初始化：将测试区准备为保留页，登记 base 开始的16页。
-   检查只有第4阶有完整块，低阶为空，总数16。
-2. 基础分配：申请3页得到 base 处4页块，剩余 base+4处4页、base+8处8页，总数12。
-   再申请1页应返回 base+4，证明选择最小可用阶；释放后再申请4页，应精确取得原余块。
-   最后按原请求3页释放第一个块，再释放第二个4页块。
-3. 综合场景：申请四个4页块 A/B/C/D，检查地址依次相差4页、不重叠、总数0。
-   申请1页失败。按 B、C、A、D 的顺序释放：
-   - B、C释放后仍是两个第2阶块；申请8页、16页均失败，块和总数8保持不变。
-   - A释放后A+B为8页，C仍为4页，旧头B清零。
-   - D释放后C+D先合并，再与A+B合并为16页；低阶为空，旧头B/C/D清零，总数16。
-4. 请求上界：申请17页和 (size_t)-1 页返回 NULL；随后仍能取得完整16页块，总数0。
-5. 初始化边界：重新准备保留页，只登记 base+3 开始的13页。
-   检查 base+3处1页、base+4处4页、base+8处8页，总数13，前3页仍保留。
-   依次申请1、4、8页，检查对应地址；再申请应失败，所有链表为空。
-6. 还原自有16页元数据。正常模式恢复真实状态后归还整块，最后一次全局遍历检查
-   各阶标志、大小、对齐、范围和总数，总空闲页数应恢复到整个测试开始之前。
-7. 独立非法释放：BUDDY_ILLEGAL_FREE_TEST 默认0，只保留模式1和3。
-   在16页区域起点申请4页：模式1按2页释放，应触发实际大小不匹配断言；
-   模式3从p+1按4页释放，应触发对齐断言且不能先越界。
-   错误调用返回后立即 panic("TEST FAILED: ...")。
-8. 重新编译并分别启动正常模式和两种非法模式，核对具体断言表达式和位置。
+
+### 1. `buddy_basic_check(struct Page *base)`
+
+**Pre-Condition**
+- 测试区域为按16页对齐的完整16页空闲块，当前最高阶为4，总空闲页数为16。
+
+**Post-Condition**
+- 基础分配和释放检查成立，16页全部归还。
+
+**Case 1：非二次幂请求和分裂**
+申请3页，验证向上取整、逐级分裂、余块所属阶和实际页数计数。
+
+**Case 2：最小可用阶和直接分配**
+继续申请1页，验证优先使用较小的4页块，并且与前面的分配块不重叠。
+
+释放这1页后再申请4页，验证释放后复用和同阶直接分配。
+
+**Case 3：按原始申请页数释放**
+按3页释放第一个块，再释放另一个4页块，实际应归还8页。
+
+### 2. `buddy_check(void)`
+
+**Pre-Condition**
+- Buddy 已初始化并登记可用页，真实链表和计数正确，能够取得一个16页块用于测试。
+- 测试在内核初始化检查阶段执行。
+
+**Post-Condition**
+- 正常模式下，各项预期成立，测试页全部归还，真实链表和最高阶恢复，空闲页总数等于测试开始前，测试函数正常返回。
+
+- 非法释放模式下，正常案例完成后，错误调用触发对应断言。
+
+**Case 1：正常测试**
+我们在16页区域中检查以下情况，区域内的合并以16页为边界，不考虑测试外的已分配页。
+
+**完整块初始化**
+输入为 `base` 开始的16个可用保留页。登记后，第4阶有完整16页块，第0～3阶为空，总空闲页数为16，基础测试的预期成立。
+
+**四个4页块与伙伴合并**
+四次4页申请分别得到 A、B、C、D，地址为 `base`、`base+4`、`base+8`、`base+12`，四块互不重叠，空闲页数为0，再申请1页返回 `NULL`。
+
+释放顺序为 B→C→A→D：
+
+| 操作  | 覆盖内容及检验依据 |
+|---|---|
+| 释放B、C，申请8页和16页 | B、C相邻但非伙伴，验证伙伴占用时停止、相邻非伙伴保持分开；申请8页验证总数足够却无合法块，申请16页验证总数不足；失败后布局和计数保持不变。 |
+| 释放A | 验证同阶伙伴合并、大小不同停止和旧块头清理。 |
+| 释放D  | 验证递归合并和链表上的低阶节点被移除；结合释放A验证不同的方向的伙伴合并；空闲页数验证合并不重复计数。 |
+
+**请求上界**
+在完整16页空闲时，申请17页和 `(size_t)-1` 页。验证当前容量上限、超大请求，以及失败后合并得到的大块仍可使用。
+
+**初始化边界**
+输入为 `base+3` 开始的13个可用保留页。
+接下来申请1、4、8页，再申请1页。
+
+验证未对齐起点、非二次幂长度、最小1页块，以及输入页全部登记并可正常使用。前3页仍为保留页，实际分配范围与输入的13页一致。
+
+**最终状态**
+正常模式结束后，测试页已回到实际的分配器，能够按正常最高阶参与伙伴合并。最后统一检查一次各阶空闲块：
+验证块头、大小、对齐和范围正确，链表与计数一致，测试页全部归还。
+
+**Case 2：释放大小不匹配**
+模式1在已知16页区域起点申请4页。再释放两页验证实际大小校验会拒绝错误调用。
+
+**Case 3：释放首页未对齐**
+模式3同样在区域起点申请4页。在申请在首页偏移1页处释放4页，应触发对齐条件断言。
 ````
