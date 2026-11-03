@@ -47,7 +47,7 @@
 |------|------------|---------|------|
 | 2412591-贺翰林 | Codex | GPT-6 Astra |  |
 | 2412604-刘泽民 |  |  |  |
-| 2414034-丁欣怡 | Codex | GPT-6 Astra | WSL Ubuntu-24.04；GCC 13.2.0；QEMU 8.2.2 |
+| 2414034-丁欣怡 | Codex | GPT-6 Astra |  |
 
 ---
 
@@ -227,7 +227,6 @@ void exception_handler(struct trapframe *tf);
 
 #### 最终提示词
 
-以下为模块二完整的四段式 Prompt 与 Spec，与 [prompt.md](prompt.md#module2-prompt) 保持一致。关机阈值 10 次为当前实现约定，不是已确认的课程规定。
 
 ````markdown
 ## [PROMPT]
