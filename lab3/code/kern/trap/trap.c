@@ -86,7 +86,7 @@ void print_regs(struct pushregs *gpr) {
     cprintf("  t6       0x%08x\n", gpr->t6);
 }
 
-//lab3 function2 YOUR CODE
+//lab3 function2 2414034
 
 /* 累计输出时钟统计信息（print_ticks）的次数，仅由 S 模式时钟中断更新，
  * 用于与 SHUTDOWN_AFTER 比较决定是否关机。 */
