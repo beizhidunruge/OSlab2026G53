@@ -12,9 +12,7 @@
 
 #define TICK_NUM 100
 
-/* 关机前累计输出时钟统计信息（print_ticks）的次数。
- * 框架与指导书均未给出该值，此处为本次实现自行采用的约定（见报告），
- * 非课程规定值：第 10 次输出（即 ticks 达到 1000）后调用 sbi_shutdown。 */
+/* 累计输出 10 次时钟统计信息后关机，即从零计数达到 1000 ticks。 */
 #define SHUTDOWN_AFTER 10
 
 static void print_ticks() {
