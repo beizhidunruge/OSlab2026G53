@@ -46,7 +46,7 @@
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |------|------------|---------|------|
 | 2412591-贺翰林 | Codex | GPT-6 Astra |  |
-| 2412604-刘泽民 |  |  |  |
+| 2412604-刘泽民 | Claude Code（VS Code插件） | DeepSeek-V4.1-Flash |  |
 | 2414034-丁欣怡 | Codex | GPT-6 Astra |  |
 
 ---
@@ -168,19 +168,175 @@ KERNTOP  - PHYSICAL_MEMORY_OFFSET = 0x88000000
 
 **负责人：** 2412604-刘泽民
 
+**说明：** 原分支源码根目录为 `lab3/`，本地对应 `lab3/code/`；下列原始提示词中的 `kern/` 路径均相对于源码根目录。
+
 #### 模块功能描述
 
-**需要实现/修改的函数或汇编功能：**
+我需要补全 `kern/trap/trapentry.S` 中的 `RESTORE_ALL` 宏和 `__alltraps` 入口。汇编部分调用的 C 函数在 `kern/trap/trap.c` 中，接口如下。
 
-**功能说明：**
+```c
+void trap(struct trapframe *tf);
+```
+
+中断和异常都从 `__alltraps` 进入。原有的 `SAVE_ALL` 先把现场存到栈上，接下来由 `__alltraps` 把这个地址传给 `trap()`。返回后进入 `__trapret`，用 `RESTORE_ALL` 读出栈上的值，再用 `sret` 回到原来的执行流。
+
+#### 核心代码实现思路
+
+##### 1. 对照 `SAVE_ALL` 和 `struct trapframe`
+
+我先看了 `SAVE_ALL` 中每条 `STORE` 的偏移，再和 `kern/trap/trap.h` 中的结构体对应起来。RV64 中 `REGBYTES` 是 8，前面 32 项按 `x0` 到 `x31` 排列，后面 4 项保存 CSR，一共占 `36 × 8 = 288` 字节。
+
+| 字段 | 保存的值 | 相对 `trapframe` 起点的字节偏移 |
+|---|---|---|
+| `gpr` | `x0` 到 `x31` | 0 到 248，每项 8 字节 |
+| `status` | `sstatus` | 256 |
+| `epc` | `sepc` | 264 |
+| `badvaddr` | `sbadaddr` | 272 |
+| `cause` | `scause` | 280 |
+
+`x2` 就是 `sp`。分配这 288 字节前，`SAVE_ALL` 先把原来的 `sp` 写入 `sscratch`。分配后用 `csrrw` 把原值读到 `s0`，再存到偏移 `2*REGBYTES` 的位置，这就是 `gpr.sp`。
+
+##### 2. 在 `__alltraps` 中调用 `trap()`
+
+```asm
+mv a0, sp
+jal trap
+```
+
+执行完 `SAVE_ALL` 后，此时的 `sp` 就是 `trapframe` 的地址。RISC-V 调用约定用 `a0` 传第一个参数，所以把 `sp` 复制给 `a0` 就能调用 `trap()`。288 字节是 16 的倍数，原栈的 16 字节对齐在分配后仍然成立。`trap()` 返回时把 `sp` 恢复到调用前的位置，`jal` 的返回地址就是后面的 `__trapret`。
+
+##### 3. 在 `RESTORE_ALL` 中恢复现场
+
+先从当前 `trapframe` 取出 `status` 和 `epc`，借用 `s1` 和 `s2` 写回对应的 CSR。
+
+```asm
+LOAD s1, 32*REGBYTES(sp)
+LOAD s2, 33*REGBYTES(sp)
+csrw sstatus, s1
+csrw sepc, s2
+```
+
+这里取的是 `trap()` 处理后的值。例如断点处理更新了 `tf->epc`，这里写回的就是更新后的返回地址。随后按保存时的偏移恢复 `x1`、`x3` 到 `x31`，包括刚才用到的 `s1` 和 `s2`。`x0` 的值固定为 0。
+
+最后执行 `LOAD x2, 2*REGBYTES(sp)`。前面的加载都要用当前的 `sp` 找到 `trapframe`，所以要等它们读完再换回原来的 `sp`。接着 `__trapret` 执行 `sret`，处理器按 `sstatus.SPP` 确定返回的特权级，把 `SPIE` 的值恢复到 `SIE`，并从 `sepc` 指定的地址继续执行。
 
 #### 最终提示词
 
+下面是我发给编程 AI 的最终提示词。
+
+````markdown
+# 功能模块 1：Trap 上下文恢复与入口实现
+
+[PROMPT]
+
+**任务**：修改 `kern/trap/trapentry.S`，补全 `RESTORE_ALL` 和 `__alltraps` 中的待实现代码，实现功能模块一：Trap 上下文恢复与 Trap 入口功能，使 Trap 处理程序能够正确调用 C 函数，并在处理结束后恢复执行现场。
+
+**操作要求**：直接修改实际文件，即 `kern/trap/trapentry.S`中的`#lab3 function1 YOUR CODE`下，仅修改指定的待实现部分，其他已有代码不进行修改。
+
+[RELY]
+
+1. **SAVE_ALL**
+
+已有的上下文保存宏，将通用寄存器及相关 CSR 保存到当前栈上的 `struct trapframe`。
+
+2. **struct trapframe：**
+
+``` c
+struct trapframe {
+    struct pushregs gpr;
+    uintptr_t status;
+    uintptr_t epc;
+    uintptr_t badvaddr;
+    uintptr_t cause;
+};
+
+void trap(struct trapframe *tf);
+```
+   - `gpr` 按照 x0～x31 的顺序保存通用寄存器对应的值。
+   - `status`、`epc`、`badvaddr`、`cause` 分别对应 `sstatus`、`sepc`、异常附加信息和 `scause`。
+   - `trapframe`占据36个`uintptr_t`的空间，总大小为 288 字节。
+
+3. **trap(struct trapframe *tf)**：
+
+   C 语言 Trap 处理函数，接收当前 trapframe 的指针。定义于 `kern/trap/trap.c`，负责中断和异常的分发与处理。
+
+4. **__trapret：**
+   已有的 Trap 返回入口，通过 `RESTORE_ALL` 恢复上下文，并使用 `sret` 完成 Trap 返回 。
+
+5. **REGBYTES`、`LOAD`、`STORE：**
+   `riscv.h`已有的汇编宏。
+
+[GUARANTEE]
+
+在 `kern/trap/trapentry.S` 中实现：
+
+1. `RESTORE_ALL`：与已有的 `SAVE_ALL` 对应，恢复 trapframe 中保存的通用寄存器、`sstatus`、`sepc` 和原始栈指针。
+
+2. `__alltraps`：在 `SAVE_ALL` 后，将当前 trapframe 指针传给 `trap()`，函数返回后进入 `__trapret`。
+
+[SPECIFICATION]
+
+**1. RESTORE_ALL**
+
+- Pre-Condition：`SAVE_ALL` 已完成上下文保存，当前 `sp` 指向 trapframe。
+- Post-Condition：恢复通用寄存器、`sstatus`、`sepc` 和原始栈指针，使程序能够通过 `sret` 返回正确的地址继续执行。
+- Requirements：
+  - 寄存器恢复顺序及偏移必须与 `SAVE_ALL` 的保存顺序和 `trapframe` 的布局对应。
+  - 注意 `SAVE_ALL` 对 `x2(sp)` 的特殊处理，恢复时不能破坏后续访问 trapframe 所需的栈指针。
+  - `sepc` 和 `sstatus` 应使用 trapframe 中的当前值，以保留 `trap()` 中可能进行的修改。
+
+**2. __alltraps**
+
+- Pre-Condition：Trap 已进入 `__alltraps`，能够通过已有的 `SAVE_ALL` 保存上下文。
+- Post-Condition：将保存后的 trapframe 作为 `struct trapframe *` 传递给 `trap()`，在 `trap()` 返回后进入 `__trapret`，完成上下文恢复并通过 `sret` 返回原执行流。
+- Requirements：
+  - 通过 `a0` 传递 trapframe 指针。
+  - 调用 `trap()` 时保持栈对齐，返回后 `sp` 应与调用前一致。
+  - `trap()` 返回后进入已有的 `__trapret`。
+
+请先阅读相关源码，按照已有的寄存器布局和汇编约定完成实现，并使用make qemu检查结果。由于`kern/trap/trap.c`中还有代码未实现，可能运行不了。
+````
+
 #### 实现迭代过程
 
-本模块的实现经历了 [N] 次迭代。
+下面记录最终提示词发出后的一轮实现。
 
 ##### 第一次迭代
+
+**提示词的写法**
+
+我在 `[PROMPT]` 里把改动范围写到文件名和两处 `#lab3 function1 YOUR CODE`，然后在 `[RELY]` 里给出 `SAVE_ALL`、结构体布局、`trap()` 接口和现成的返回入口。`[GUARANTEE]` 写清楚两处代码各自要完成什么。
+
+写 `[SPECIFICATION]` 时，入口的条件是 `SAVE_ALL` 已保存现场，接着要把当前 `sp` 放到 `a0`，并保证调用返回后的 `sp` 仍指向同一个栈帧。恢复部分则要按原来的偏移取值，保留 C 函数对 `tf->status` 和 `tf->epc` 的修改，并注意原始 `sp` 的恢复顺序。
+
+**最终结果**
+
+ AI 在指定的两处补上了代码。
+
+
+#### 验证
+
+用 LLVM 生成 RV64 目标文件，再核对反汇编。下面是其中几条指令。
+
+```text
+0004: addi sp, sp, -288
+0062: mv a0, sp
+0064: jal 0
+0068: ld s1, 256(sp)
+006a: ld s2, 264(sp)
+006c: csrw sstatus, s1
+0070: csrw sepc, s2
+00b0: ld sp, 16(sp)
+00b2: sret
+```
+
+可以看到栈帧分配了 288 字节，`status` 和 `epc` 的读取偏移分别是 256 和 264，和结构体的布局一致。`0064` 处的 `R_RISCV_JAL` 重定位项指向 `trap`，返回地址 `0068` 对应 `__trapret`。最后先从偏移 16 恢复原来的 `sp`，再执行 `sret`。
+
+##### 原分支构建限制与联调计划
+
+在原分支尚未包含模块二时，根据其编程 AI 返回的检查结果，`make qemu` 在编译 `kern/trap/trap.c` 时停在第 89 和第 92 行，分别是对 `interrupt_handler(tf)` 和 `exception_handler(tf)` 的调用。
+
+小组联调时，`make qemu` 可以用来查看时钟中断的 `100 ticks` 输出。`make grade` 的第一项会先给一组寄存器赋固定值，再用 `ebreak` 触发断点异常，返回后比较这些寄存器的值。这个测试也会检查断点处理的输出，因此需要入口、异常处理和返回这几步一起工作。
 
 ---
 
@@ -209,7 +365,7 @@ void exception_handler(struct trapframe *tf);
 
 该长度判断仅针对当前实验的 16/32 位指令，不能推广为所有 RISC-V 编码低两位为 `11` 都是 32 位。当前未知中断提示还将原因转换为 `int`，测试原因码 15 可正常表达，超出该范围的原因可能截断，完整原始原因仍保存在 Trap frame 中；这属于当前诊断实现的边界。
 
-**关机参数的依据：** 初始框架未定义 `SHUTDOWN_AFTER`，指导书也未给出数值。当前代码采用 10，含义是第 10 次统计输出后关机；从零计数时对应 1000 次时钟中断。这是本次实现约定，不是课程规定值，也尚未完成正常关机的运行验证。
+**关机参数的依据：** 初始框架未定义 `SHUTDOWN_AFTER`，指导书也未给出数值。当前代码采用 10，含义是第 10 次统计输出后关机；从零计数时对应 1000 次时钟中断。这是本次实现约定，不是课程规定值。
 
 **Spec 设计思路：**
 
@@ -340,8 +496,6 @@ void exception_handler(struct trapframe *tf);
 
 #### 实现迭代过程
 
-目前完成一版功能实现和后续环境、构建及集成检查，尚未形成完整运行验证通过的版本。以下按实际协作阶段记录，不将预防性约束写成曾经发生的代码 bug。
-
 ##### 第一次迭代
 
 **规格设计与实现：**
@@ -405,6 +559,8 @@ OS 原理中仍有若干重要内容未在本次实验中完整实现：
 5. **设备 I/O 与持久化。** 本实验对部分中断仅进行识别和提示，尚未实现完整外设驱动、阻塞 I/O 唤醒、文件系统及持久化管理。
 
 ### AI 协作开发的经验
+
+**刘泽民：** 我觉得这次写提示词时，先把已有代码看懂比较重要。我先按 `SAVE_ALL` 把保存位置看清楚，再把从哪里取寄存器、什么时候恢复 `sp` 写到 spec 里。生成代码以后也按同一份布局检查，最后看反汇编里 `sp` 是不是从偏移 16 读回来的。
 
 提示词应以工程中的真实定义为依据。本次核对发现手册提到的 `SHUTDOWN_AFTER` 在初始代码中尚无定义，说明依赖信息需要逐项核实，不能将文档中出现的名称直接视为可用接口。对汇编与 C 协作的模块，Trap frame 布局、原始栈指针和返回地址尤其需要明确约束。
 

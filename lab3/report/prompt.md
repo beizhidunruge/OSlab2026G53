@@ -1,18 +1,99 @@
 # Lab3 提示词与规格汇编
 
-代码路径以仓库根目录为准，源码位于 `lab3/code/`。实验报告见 [report.md](report.md)。本文目前收录丁欣怡负责的功能模块二，其他成员的提示词由本人补充。
+代码路径以仓库根目录为准，源码位于 `lab3/code/`。实验报告见 [report.md](report.md)。
+模块一原始提示词中的路径以源码根目录为准，对应当前 `lab3/code/`。
 
 | 负责人 | 材料 |
 | --- | --- |
+| 刘泽民（2412604） | [Trap 上下文恢复与入口模块 Prompt 和 Spec](#module1-prompt) |
 | 丁欣怡（2414034） | [中断与异常处理模块 Prompt 和 Spec](#module2-prompt) |
+
+<a id="module1-prompt"></a>
+
+## 功能模块一：Trap 上下文恢复与 Trap 入口功能
+
+**负责人：** 2412604-刘泽民
+
+**说明：** 原分支源码根目录为 `lab3/`，本地对应 `lab3/code/`；下列原始提示词中的 `kern/` 路径均相对于源码根目录。
+
+````markdown
+# 功能模块 1：Trap 上下文恢复与入口实现
+
+[PROMPT]
+
+**任务**：修改 `kern/trap/trapentry.S`，补全 `RESTORE_ALL` 和 `__alltraps` 中的待实现代码，实现功能模块一：Trap 上下文恢复与 Trap 入口功能，使 Trap 处理程序能够正确调用 C 函数，并在处理结束后恢复执行现场。
+
+**操作要求**：直接修改实际文件，即 `kern/trap/trapentry.S`中的`#lab3 function1 YOUR CODE`下，仅修改指定的待实现部分，其他已有代码不进行修改。
+
+[RELY]
+
+1. **SAVE_ALL**
+
+已有的上下文保存宏，将通用寄存器及相关 CSR 保存到当前栈上的 `struct trapframe`。
+
+2. **struct trapframe：**
+
+``` c
+struct trapframe {
+    struct pushregs gpr;
+    uintptr_t status;
+    uintptr_t epc;
+    uintptr_t badvaddr;
+    uintptr_t cause;
+};
+
+void trap(struct trapframe *tf);
+```
+   - `gpr` 按照 x0～x31 的顺序保存通用寄存器对应的值。
+   - `status`、`epc`、`badvaddr`、`cause` 分别对应 `sstatus`、`sepc`、异常附加信息和 `scause`。
+   - `trapframe`占据36个`uintptr_t`的空间，总大小为 288 字节。
+
+3. **trap(struct trapframe *tf)**：
+
+   C 语言 Trap 处理函数，接收当前 trapframe 的指针。定义于 `kern/trap/trap.c`，负责中断和异常的分发与处理。
+
+4. **__trapret：**
+   已有的 Trap 返回入口，通过 `RESTORE_ALL` 恢复上下文，并使用 `sret` 完成 Trap 返回 。
+
+5. **REGBYTES`、`LOAD`、`STORE：**
+   `riscv.h`已有的汇编宏。
+
+[GUARANTEE]
+
+在 `kern/trap/trapentry.S` 中实现：
+
+1. `RESTORE_ALL`：与已有的 `SAVE_ALL` 对应，恢复 trapframe 中保存的通用寄存器、`sstatus`、`sepc` 和原始栈指针。
+
+2. `__alltraps`：在 `SAVE_ALL` 后，将当前 trapframe 指针传给 `trap()`，函数返回后进入 `__trapret`。
+
+[SPECIFICATION]
+
+**1. RESTORE_ALL**
+
+- Pre-Condition：`SAVE_ALL` 已完成上下文保存，当前 `sp` 指向 trapframe。
+- Post-Condition：恢复通用寄存器、`sstatus`、`sepc` 和原始栈指针，使程序能够通过 `sret` 返回正确的地址继续执行。
+- Requirements：
+  - 寄存器恢复顺序及偏移必须与 `SAVE_ALL` 的保存顺序和 `trapframe` 的布局对应。
+  - 注意 `SAVE_ALL` 对 `x2(sp)` 的特殊处理，恢复时不能破坏后续访问 trapframe 所需的栈指针。
+  - `sepc` 和 `sstatus` 应使用 trapframe 中的当前值，以保留 `trap()` 中可能进行的修改。
+
+**2. __alltraps**
+
+- Pre-Condition：Trap 已进入 `__alltraps`，能够通过已有的 `SAVE_ALL` 保存上下文。
+- Post-Condition：将保存后的 trapframe 作为 `struct trapframe *` 传递给 `trap()`，在 `trap()` 返回后进入 `__trapret`，完成上下文恢复并通过 `sret` 返回原执行流。
+- Requirements：
+  - 通过 `a0` 传递 trapframe 指针。
+  - 调用 `trap()` 时保持栈对齐，返回后 `sp` 应与调用前一致。
+  - `trap()` 返回后进入已有的 `__trapret`。
+
+请先阅读相关源码，按照已有的寄存器布局和汇编约定完成实现，并使用make qemu检查结果。由于`kern/trap/trap.c`中还有代码未实现，可能运行不了。
+````
 
 <a id="module2-prompt"></a>
 
 ## 功能模块二：中断与异常处理
 
 **负责人：** 2414034-丁欣怡
-
-**版本说明：** 下文整理自本次协作设计的四段式提示词，并按当前代码补充关机阈值 10 次的实现约定和验证边界。初始提示词将该阈值列为待确认项；本文为与当前实现一致的整理版，不将后续约定倒称为最初已知的课程要求。当前实现已通过编译，完整集成测试尚未通过。
 
 ````markdown
 ## [PROMPT]
