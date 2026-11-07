@@ -26,7 +26,15 @@ kern_entry:
     # 将刚才计算出的预设三级页表物理页号附加到 satp 中
     or      t0, t0, t1
     # 将算出的 t0(即新的MODE|页表基址物理页号) 覆盖到 satp 中
+    # The physical PC is not mapped by the high-half-only page table.
+    # Route the first instruction page fault to the mapped virtual entry.
+    lui     t1, %hi(.Lvirtual_entry)
+    addi    t1, t1, %lo(.Lvirtual_entry)
+    csrw    stvec, t1
+    sfence.vma
     csrw    satp, t0
+    .balign 4
+.Lvirtual_entry:
     # 使用 sfence.vma 指令刷新 TLB
     sfence.vma
     # 从此，我们给内核搭建出了一个完美的虚拟内存空间！
