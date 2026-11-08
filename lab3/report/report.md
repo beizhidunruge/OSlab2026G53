@@ -526,6 +526,136 @@ void exception_handler(struct trapframe *tf);
 
 ## 五、测试与验证
 
+### 模块一GDB 调试
+**负责人：** 2412604-刘泽民。
+
+我在 `__alltraps`、`trap()` 和 `__trapret` 设置断点，跟踪一次 S 模式时钟中断。先记录进入时的寄存器，再检查栈上的 `trapframe`，最后对照恢复后的寄存器和返回地址。
+
+#### 1. 启动 QEMU 和 GDB，设置断点
+
+先在第一个终端进入代码目录，启动调试。
+
+```bash
+cd ~/labs/lab3/code
+make debug
+```
+
+再在第二个终端连接 GDB。
+
+```bash
+cd ~/labs/lab3/code
+make gdb
+```
+
+在 GDB 中设置三个断点，然后继续执行。断点名前加 `*`，使程序停在对应入口的第一条机器指令。
+
+```gdb
+break *__alltraps
+break *trap
+break *__trapret
+c
+```
+
+![启动调试并设置三个断点](images/gdb_01_breakpoints.png)
+
+程序停在 `__alltraps` 的 `SAVE_ALL` 处，此时入口地址为 `0xffffffffc0200c34`。
+
+#### 2. 记录进入时的寄存器
+
+先查看通用寄存器和几个相关 CSR，再把原来的 `sp` 存到 GDB 变量 `$oldsp` 中，供后面比较。
+
+```gdb
+i r
+i r sepc sstatus stval scause
+set $oldsp = $sp
+```
+
+![进入 __alltraps 时的寄存器](images/gdb_02_alltraps.png)
+
+| 寄存器 | 此时的值 | 含义 |
+|---|---|---|
+| `sp` | `0xffffffffc0205ff0` | 保存现场前的栈指针 |
+| `sepc` | `0xffffffffc020009c` | 被打断的位置，对应 `kern_init+72` |
+| `sstatus` | `0x8000000000006120` | 进入 Trap 后的状态 |
+| `stval` | `0x0` | 源码中 `sbadaddr` 对应的寄存器值 |
+| `scause` | `0x8000000000000005` | 最高位为 1，原因码为 5，表示 S 模式时钟中断 |
+
+#### 3. 执行 `SAVE_ALL`，检查栈上的 `trapframe`
+
+本次代码的 `SAVE_ALL` 展开后有 43 条指令，因此执行 `si 43` 后正好停在 `mv a0, sp`。
+
+```gdb
+si 43
+set $tf = (struct trapframe *)$sp
+p sizeof(*$tf)
+p/x {$tf->gpr.sp, $oldsp}
+i r sp
+x/36gx $sp
+```
+
+![检查 trapframe 大小、原始 sp 和保存的寄存器](images/gdb_03_trapframe.png)
+
+可以看到 `sizeof(*$tf)` 为 288，此时 `sp` 为 `0xffffffffc0205ed0`。和原来的 `0xffffffffc0205ff0` 相差 `0x120`，也就是 288 字节，正好是一个 `trapframe` 的大小。
+
+`p/x {$tf->gpr.sp, $oldsp}` 输出的两个值都是 `0xffffffffc0205ff0`，说明 `gpr.sp` 保存的是分配栈帧之前的栈指针。再把内存前 32 项和上一张图中的通用寄存器对照，保存的值一致。最后 4 项依次为 `sstatus`、`sepc`、`stval` 和 `scause`，也和进入时记录的值对应。
+
+#### 4. 进入 `trap()`，检查参数传递
+
+继续执行到第二个断点，查看 `a0` 和 `sp`。
+
+```gdb
+c
+i r a0 sp
+```
+
+![检查传给 trap 的地址和 C 函数返回后的 sp](images/gdb_04_trap.png)
+
+这里 `trap_dispatch()` 被内联到 `trap()`，GDB 显示停在 `trap_dispatch(tf=0xffffffffc0205ed0)`。此时 `a0` 和 `sp` 都为 `0xffffffffc0205ed0`，和刚才的栈帧起点相同，说明 `mv a0, sp` 把 `trapframe` 的地址传给了 C 函数。
+
+#### 5. 执行 `RESTORE_ALL`，对照恢复后的寄存器
+
+继续执行到 `__trapret`，先查看 C 函数返回后的栈指针，再单步执行恢复宏。本次代码的 `RESTORE_ALL` 有 35 条指令，执行后停在 `sret`。
+
+```gdb
+c
+i r sp
+si 35
+i r
+i r sepc sstatus
+```
+
+![执行 RESTORE_ALL 后的寄存器](images/gdb_05_restore.png)
+
+进入 `__trapret` 时，`sp` 仍为 `0xffffffffc0205ed0`，说明 C 函数返回后，栈指针回到了调用前的位置。执行 `RESTORE_ALL` 后，逐项对照两次 `i r` 的输出，显示的 31 个通用寄存器值一致。下面列出其中几项，以及两个用于返回的 CSR。
+
+| 寄存器 | 进入 `__alltraps` 时 | 执行 `RESTORE_ALL` 后 |
+|---|---|---|
+| `ra` | `0xffffffffc020009c` | `0xffffffffc020009c` |
+| `sp` | `0xffffffffc0205ff0` | `0xffffffffc0205ff0` |
+| `t1` | `0xffffffffc0205fb8` | `0xffffffffc0205fb8` |
+| `fp`（`s0`） | `0x8001bd90` | `0x8001bd90` |
+| `s1` | `0x8001be00` | `0x8001be00` |
+| `a0` | `0x1a` | `0x1a` |
+| `s2` | `0x800095c0` | `0x800095c0` |
+| `sepc` | `0xffffffffc020009c` | `0xffffffffc020009c` |
+| `sstatus` | `0x8000000000006120` | `0x8000000000006120` |
+
+尤其是 `a0`，调用 `trap()` 时它保存栈帧地址，恢复后又变成了原来的 `0x1a`。借用来恢复 CSR 的 `s1` 和 `s2` 也恢复成了各自原来的值。此时 `pc` 为 `0xffffffffc0200ce6`，对应 `sret`。`sstatus` 和 `sepc` 也与前面一致。
+
+#### 6. 执行 `sret`，检查实际返回位置
+
+```gdb
+si
+i r pc sp
+```
+
+![执行 sret 后回到 kern_init](images/gdb_06_return.png)
+
+执行后 GDB 显示回到了 `kern_init()` 第 39 行的 `while (1)`。`pc` 为 `0xffffffffc020009c`，等于前面记录的 `sepc`，`sp` 为 `0xffffffffc0205ff0`，等于原来的栈指针。这次时钟中断处理后，程序回到了被打断的位置。
+
+到这里模块一的gdb调试就结束了。
+
+### 总体测试
 测试时间：2026 年 11 月 6 日
 
 交叉编译器为 `riscv64-unknown-elf-gcc 10.2.0`，运行环境为 QEMU 4.1.1 的 RISC-V `virt` 机器，使用 OpenSBI 启动内核。
