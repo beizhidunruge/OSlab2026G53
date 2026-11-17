@@ -221,4 +221,44 @@ init_main(void *arg)
 //LAB4 function2 YOUR CODE
 
 
-//LAB4 function3 YOUR CODE
+//LAB4 function3 2412591
+
+// proc_run - 让进程 proc 在 CPU 上运行
+void proc_run(struct proc_struct *proc)
+{
+    if (proc == current)
+    {
+        return;
+    }
+
+    bool intr_flag;
+    struct proc_struct *prev = current;
+    struct proc_struct *next = proc;
+
+    local_intr_save(intr_flag);
+    {
+        current = proc;
+
+        // 内核线程共享启动页表，因此 pgdir 为空时回退到 boot_pgdir_pa。
+        // pgdir 必须是物理地址，因为 satp 中保存的是页表根节点的物理页号。
+        uintptr_t pgdir = next->pgdir != 0 ? next->pgdir : boot_pgdir_pa;
+        write_csr(satp, ((uint64_t)SATP_MODE_SV39 << 60) |
+                            (pgdir >> RISCV_PGSHIFT));
+        flush_tlb();
+
+        switch_to(&(prev->context), &(next->context));
+    }
+    local_intr_restore(intr_flag);
+}
+
+// cpu_idle - 空闲线程，需要重新调度时主动让出 CPU
+void cpu_idle(void)
+{
+    while (1)
+    {
+        if (current->need_resched)
+        {
+            schedule();
+        }
+    }
+}
