@@ -87,6 +87,10 @@ kern_init → pmm_init → vmm_init → proc_init → cpu_idle
 
 ## 四、实验内容与实现
 
+### 功能模块一：虚拟内存页操作
+
+**负责人：** 2412604-刘泽民
+
 ### 功能模块二：进程创建及初始化
 
 **负责人：** 2414034-丁欣怡
@@ -163,8 +167,6 @@ void proc_init(void);
 **问题解决策略：** 保留原有测试和成员边界；待 A/C 交付后整合，再运行 Process Create 和完整评分，不用空实现绕过缺失接口。
 
 **当前状态：** 模块二代码与规格已完成；尚未取得 QEMU 运行、Process Create 10/10 或整机 30/30 的结果。分配失败路径已进行代码审查，尚未进行故障注入验证。首次运行需与 C 沿 switch_to → forkret → forkrets → __trapret → kernel_thread_entry 联调。
-
----
 
 ---
 
@@ -354,13 +356,6 @@ next!=current 时 proc_run(next)。
 1. 在 `[RELY]` 中固定 `satp` 的 Sv39 写法、`struct context` 布局和字段偏移，消除了“Sv32 模式 / 32 位移位 / 汇编偏移”三类高危错误；
 2. 在 `[SPECIFICATION]` 中把“`idleproc` 只作保底”和“`pgdir` 是物理地址”写成明确的系统约束，避免 AI 只按经典算法生成而忽略本实验的测试流程；
 3. 验证手段从“编译通过”升级为“反汇编核对 + 压力测试 + `make grade`”，并把跨模块契约（`pgdir`、`tf/context`、`idleproc` 链表）单独列出，降低联调成本。
-
----
-### 练习：[练习标题]
-
-**负责人：** [学号-姓名]
-
-[按照练习的具体要求进行解答]
 
 ---
 
