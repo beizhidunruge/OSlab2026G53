@@ -41,7 +41,7 @@
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |------|------------|---------|------|
 | 2412604-刘泽民 | Claude Code（VS Code 插件）| DeepSeek-V4.1-Flash | |
-| 2414034-丁欣怡 | | | |
+| 2414034-丁欣怡 | Codex | GPT-6 Astra | |
 | 2412591-贺翰林 | DeepSeek Harness | DeepSeek-V4.1-Flash | |
 
 ---
@@ -88,8 +88,6 @@ kern_init → pmm_init → vmm_init → proc_init → cpu_idle
 ## 四、实验内容与实现
 
 ### 功能模块一：虚拟内存页操作
-
-**负责人：** 2412604-刘泽民
 
 **负责人：** 2412604-刘泽民
 
@@ -726,14 +724,23 @@ prepare_page_tables(根页表, 虚拟地址)
 
 ## 五、测试与验证
 
-<!-- 根据该实验的具体情况，提供完整的测试运行截图，应包含：
-- 编译及运行成功的输出（make qemu），可能有多个
-- 测试通过的结果（make grade），只有一个
--->
+**测试环境：** riscv64-unknown-elf-gcc 10.2.0、qemu-system-riscv64、GNU Make；工作目录 `lab4/code`。
+
+**测试记录（2026-11-20）：**
+
+| 步骤 | 命令 | 实际结果 |
+|---|---|---|
+| 清理并编译 | `make clean && make -j4` | 编译、链接通过，生成 `bin/kernel` 和 `bin/ucore.img` |
+| 启动内核 | `make qemu` | `check_pgdir()`、`check_boot_pgdir()`、`check_vmm()` 依次通过；输出 `this initproc, pid = 1, name = "init"` 和两行 `To U:` |
+| 官方评分 | `make grade` | `check PMM: OK`、`check Process Create: OK`、`check Schedule: OK`，`Total Score: 30/30` |
+
+> `make qemu` 末尾出现 `kernel panic ... process exit!!.` 是骨架中 `do_exit` 仍为 `panic` 的预期现象，不影响评分。
 
 **测试截图：**
 
-![测试结果截图](./images/test_result.png)
+![make qemu 运行截图](./images/test_qemu.png)
+
+![make grade 评分截图](./images/test_grade.png)
 
 ---
 
@@ -745,10 +752,10 @@ prepare_page_tables(根页表, 虚拟地址)
 
 | 本实验知识点 | 对应 OS 原理 | 含义、关系与差异 |
 |---|---|---|
-| 多级页表         | 虚拟页号分成几个下标，由根页表逐级查到叶子页表项。多级页表可以按实际使用的地址范围分配。 | `get_pte()` 用 `PDX1`、`PDX0`、`PTX` 取出三级下标，在插入映射用到某张页表时才分配它。 |
-| 页表权限         | 页表项还决定能不能读、写、执行，以及用户态能否访问。         | `page_insert()` 用 `perm` 重新设置叶子页表项的权限。同一个虚拟页可以继续指向原来的物理页，只修改它的访问权限。 |
-| 物理页的引用计数 | 一页物理内存可以被多处映射，最后一处引用解除后才能回收。     | `struct Page` 用 `ref` 记录引用情况。替换映射会同时改新旧两页的计数，删除时减到 0 才把物理页还给分配器。 |
-| TLB              | CPU 可以缓存查页表得到的地址转换和权限，减少重复查页表的开销。 | 修改页表项后用 `tlb_invalidate()` 执行 `sfence.vma`，使相应虚拟页的旧转换失效。 |
+| 多级页表（`PDX1/PDX0/PTX`） | 多级页表 / 分页机制 | 本实验按 Sv39 的三级下标查表，用到某级页表时才分配；OS 还会结合页表基址寄存器、权限位和 TLB 管理地址空间。 |
+| 页表权限（`perm`/PTE 位） | 内存保护 / 页表项权限 | 本实验用 `perm` 重写叶子 PTE 的权限位；OS 中权限位还参与用户态隔离、按需分页和写时复制。 |
+| 物理页引用计数（`Page.ref`） | 共享页 / 引用计数 | 本实验替换或删除映射时增减 `ref`，减到 0 才释放物理页；OS 中引用计数还用于 COW、共享内存和页缓存。 |
+| TLB（`tlb_invalidate`/`sfence.vma`） | TLB / 地址转换缓存 | 本实验修改 PTE 后按虚拟地址失效 TLB；OS 在切换地址空间或批量修改映射时还要刷新整个 TLB/ASID。 |
 | `proc_struct` 进程控制块 | PCB / TCB | 本实验用同一个结构描述内核线程，只保留状态、pid、内核栈、上下文、页表等必要字段；真实 OS 的 PCB 还要管理文件、信号、凭证、地址空间等，进程与线程的描述也常分开。 |
 | `context` + `switch_to` | 上下文切换 | 本实验只保存 `ra/sp/s0-s11` 等被调用者保存寄存器，调用者保存寄存器交给编译器处理；OS 的切换还要处理浮点/SIMD、TLS、页表等，开销更大。 |
 | `schedule` + `proc_list` | 调度器 / 就绪队列 | 本实验是单核、FIFO/轮转，且只在 `cpu_idle` 或显式调用时调度；OS 通常由时钟中断驱动抢占，还要处理优先级、时间片和多核负载均衡。 |

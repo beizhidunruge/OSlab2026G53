@@ -1,9 +1,116 @@
 # Lab4 提示词记录
 
+## 功能模块一：虚拟内存页操作
+
+**负责人：** 2412604-刘泽民
+
+````markdown
+[PROMPT]
+
+**任务**：修改 `kern/mm/pmm.c`，实现虚拟内存页操作功能，包括建立、更新和撤销虚拟地址到物理页的映射，保证页表项、物理页引用计数和 TLB 状态一致。
+
+**操作要求**：必须修改项目实际文件，在 `//LAB4 function1 YOUR CODE` 处补全功能，保留其他现有代码及测试。复用已有接口，不引入无关功能。
+
+**输出要求**：根据以下规格完成实现。代码应逻辑清晰、结构简洁，避免重复逻辑、不必要的辅助函数和冗余注释，同时完整处理异常情况。完成后编译并验证相关测试，说明实际结果。
+
+[RELY]
+
+现有工程提供以下数据结构、宏和接口：
+
+- **数据结构**：`pde_t`、`pte_t`、`struct Page`（`ref` 为引用计数）、`pages`、`boot_pgdir_va`。
+- **页表操作**：`get_pte(pgdir, la, create)` 定位页表项，`create=1` 时按需分配中间级页表页，失败返回 `NULL`；`pte_create(ppn, perm)` 构造包含 `PTE_V` 的页表项；`pte2page()`、`pde2page()`、`page2ppn()` 用于物理页转换。
+- **物理页管理**：`page_ref()`、`page_ref_inc()`、`page_ref_dec()`、`set_page_ref()`、`alloc_page()`、`free_page()`。
+- **地址与权限**：`PDX1()`、`PDX0()`、`PTX()`、`PDE_ADDR()`、`KADDR()`、`PGSIZE`、`PTE_V`、`PTE_U`、`PTE_W`、`PTE_R`、`PTE_X`。
+- **TLB 操作**：`tlb_invalidate()`、`flush_tlb()`。
+- **错误码**：`E_NO_MEM`。
+
+注意：现有 `get_pte()` 可能在成功挂接第一级页表页后，因下一级分配失败而返回 `NULL`，此时已创建的页表页不会自动回收。
+
+[GUARANTEE]
+
+在 `kern/mm/pmm.c` 中实现：
+
+```
+int page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm);(kern/mm/pmm.c)
+void page_remove(pde_t *pgdir, uintptr_t la);(kern/mm/pmm.c)
+```
+
+保持函数签名不变。必要时可添加模块内部的 `static` 辅助函数，不修改公开接口。
+
+[SPECIFICATION]
+
+### 1. page_insert()
+
+**Pre-Condition**
+
+- `pgdir` 和 `page` 均有效，`la` 不要求页对齐。
+- 目标虚拟地址可能未映射，也可能已映射到相同或不同的物理页。
+
+**Post-Condition**
+
+- 成功返回 `0`，目标页表项映射到 `page`，包含 `PTE_V` 和 `perm` 指定的权限。
+- 物理页引用计数与映射关系一致，映射或权限变化后对应 TLB 项失效。
+- 页表分配失败返回 `-E_NO_MEM`，原有映射与引用计数不变，不留下半完成映射或资源泄漏。
+
+**Case 1：原地址未映射**
+
+按需建立中间级页表，创建目标映射，目标物理页引用计数增加一次。
+
+**Case 2：原地址已映射到同一物理页**
+
+更新权限，保持引用计数和空闲物理页数量不变，不得释放该物理页。
+
+**Case 3：原地址已映射到其他物理页**
+
+替换旧映射，新物理页引用计数增加一次，旧物理页引用计数减少一次；旧页引用计数归零时释放。
+
+**Case 4：页表分配失败**
+
+返回 `-E_NO_MEM`。若本次调用已创建部分中间级页表页，应撤销新增的页表项并释放对应页表页，不影响原有页表结构和映射，原来的页表项应保持一致。
+
+**Requirements**
+
+- 判断有效映射时通过页表项指针和`PTE_V`判断。
+- 同页重复插入不得重复增加引用计数或错误释放物理页。
+- 新权限以 `perm` 为准，不保留旧权限；映射或权限更新后使对应 TLB 项失效。
+
+### 2. page_remove()
+
+**Pre-Condition**
+
+- `pgdir` 有效，`la` 不要求页对齐，目标地址可能存在或不存在映射。
+
+**Post-Condition**
+
+- 有效映射被撤销后，页表项清零，物理页引用计数正确减少，对应 TLB 项失效。
+- 无有效映射时直接返回，不改变页表和引用计数。
+
+**Case 1：存在有效映射**
+
+清除页表项，原物理页引用计数减少一次，归零时释放物理页，并使对应 TLB 项失效。
+
+**Case 2：不存在有效映射**
+
+直接返回，不分配页表页、不修改引用计数，也不释放物理页。重复删除应保持相同结果。
+
+**Requirements**
+
+- 查找页表项时不得创建缺失的中间级页表。
+- 仅对有效映射使用 `pte2page()`。
+- 不回收中间级页表页，避免破坏其他映射及现有测试依赖的页表结构。
+
+### 3. 验证要求
+
+不得修改测试代码
+````
+
+---
+
 ## 功能模块二：进程创建及初始化
 
 **负责人：** 2414034-丁欣怡
 
+````markdown
 [PROMPT]
 
 **任务**：实现 lab4/code/kern/process/proc.c 中 function2 的六个函数，创建共享内核地址空间的 idle/init 内核线程。
@@ -41,6 +148,7 @@ void proc_init(void);
 6. proc_init：启动时只调用一次；初始化全局链表和哈希表。idle 使用 bootstack、PID0、RUNNABLE、need_resched=1，parent/mm/tf=NULL，runs/flags/context 初值为零；设 current=idle 并计数，但 idle 不加入普通链表和哈希。通过 kernel_thread(init_main,"Hello world!!",0) 创建 PID1，find_proc 后命名 init；创建失败 panic。
 
 验收应分清模块编译和整机运行；整合后使用原测试验证 Process Create，并与 C 检查完整首次恢复链，不修改测试判据。
+````
 
 ---
 
@@ -48,6 +156,7 @@ void proc_init(void);
 
 **负责人：** 2412591-贺翰林
 
+````markdown
 [PROMPT]
 
 **任务**：修改 `kern/process/switch.S`、`kern/process/proc.c`、`kern/schedule/sched.c`，
@@ -83,3 +192,4 @@ void cpu_idle(void);
    环形查找可运行进程，跳过 `idleproc` 作为普通候选；找不到时以 idle 为保底，
    增加目标进程的 `runs`，必要时调用 `proc_run`。
 4. `cpu_idle` 不返回；仅在 `need_resched` 为真时调用 `schedule`，否则继续空转。
+````
