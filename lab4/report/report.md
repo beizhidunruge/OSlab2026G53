@@ -724,23 +724,28 @@ prepare_page_tables(根页表, 虚拟地址)
 
 ## 五、测试与验证
 
-**测试环境：** riscv64-unknown-elf-gcc 10.2.0、qemu-system-riscv64、GNU Make；工作目录 `lab4/code`。
+### 5.1 QEMU 启动验证
 
-**测试记录（2026-11-20）：**
+在 WSL2 的 `oslab` 环境中进入 `lab4/code`，执行 `make qemu`。启动日志显示 `check_alloc_page()`、`check_pgdir()` 和 `check_boot_pgdir()` 均通过，`check_vma_struct()` 和 `check_vmm()` 也输出成功。随后，`initproc` 打印 `this initproc, pid = 1, name = "init"` 和问候语，说明内核已从 `idleproc` 切换到 `initproc`，并执行了线程入口函数。
 
-| 步骤 | 命令 | 实际结果 |
-|---|---|---|
-| 清理并编译 | `make clean && make -j4` | 编译、链接通过，生成 `bin/kernel` 和 `bin/ucore.img` |
-| 启动内核 | `make qemu` | `check_pgdir()`、`check_boot_pgdir()`、`check_vmm()` 依次通过；输出 `this initproc, pid = 1, name = "init"` 和两行 `To U:` |
-| 官方评分 | `make grade` | `check PMM: OK`、`check Process Create: OK`、`check Schedule: OK`，`Total Score: 30/30` |
+`init_main()` 返回后，线程入口调用 Lab4 框架中的 `do_exit()` 占位实现。控制台输出 `process exit!!` 并进入内核调试监视器，此时启动自检和首次线程切换已经完成。
 
-> `make qemu` 末尾出现 `kernel panic ... process exit!!.` 是骨架中 `do_exit` 仍为 `panic` 的预期现象，不影响评分。
+![make qemu 启动日志与内核自检结果](../report/images/make_qemu.png)
 
-**测试截图：**
+### 5.2 自动评分
 
-![make qemu 运行截图](./images/test_qemu.png)
+在同一目录执行 `make grade`，三个评分项均通过。
 
-![make grade 评分截图](./images/test_grade.png)
+| 评分项 | 检查内容 | 结果 | 得分 |
+|---|---|---|---|
+| PMM | 页表映射的建立、替换和删除，以及权限位和引用计数 | OK | 10/10 |
+| Process Create | `idleproc` 与 `initproc` 的初始化状态和执行上下文 | OK | 10/10 |
+| Schedule | 两个测试线程均获得 CPU 时间 | OK | 10/10 |
+| **总分** | | | **30/30** |
+
+编译输出中的三条类型警告来自框架的 `kmalloc.c` 和评分测试的线程回调声明，评分过程顺利完成。
+
+![make grade 三项通过，总分 30/30](../report/images/make_grade.png)
 
 ---
 
