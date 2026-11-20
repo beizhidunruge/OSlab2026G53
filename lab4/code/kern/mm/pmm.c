@@ -280,10 +280,72 @@ struct Page *get_page(pde_t *pgdir, uintptr_t la, pte_t **ptep_store)
     return NULL;
 }
 
-//LAB4 function1 YOUR CODE
+//LAB4 function1 2412604
+// page_insert - map la to page with permissions perm, replacing any existing
+// mapping. Returns 0 on success, -E_NO_MEM if a middle-level table cannot be
+// allocated (in which case the original page tables are left untouched).
+int page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm)
+{
+    // Record whether the first-level table already exists, so that a page
+    // table page newly attached by get_pte() can be reclaimed on failure.
+    pde_t *pdep1 = &pgdir[PDX1(la)];
+    pde_t pde1_old = *pdep1;
 
+    pte_t *ptep = get_pte(pgdir, la, 1);
+    if (ptep == NULL)
+    {
+        // Restore the entry exactly as it was if get_pte() attached a new
+        // first-level table page before failing to allocate the next level.
+        if (!(pde1_old & PTE_V) && (*pdep1 & PTE_V))
+        {
+            struct Page *pt = pde2page(*pdep1);
+            *pdep1 = pde1_old;
+            free_page(pt);
+        }
+        return -E_NO_MEM;
+    }
 
+    if (*ptep & PTE_V)
+    {
+        struct Page *old = pte2page(*ptep);
+        // Re-inserting the same page only updates permissions.
+        if (old != page)
+        {
+            page_ref_inc(page);
+            if (page_ref_dec(old) == 0)
+            {
+                free_page(old);
+            }
+        }
+    }
+    else
+    {
+        page_ref_inc(page);
+    }
+    *ptep = pte_create(page2ppn(page), perm);
+    tlb_invalidate(pgdir, la);
+    return 0;
+}
 
+// page_remove - undo the mapping at la, dropping the page reference and
+// releasing the physical page when it is no longer mapped anywhere.
+void page_remove(pde_t *pgdir, uintptr_t la)
+{
+    // Never create middle-level tables for an address that may not be mapped.
+    pte_t *ptep = get_pte(pgdir, la, 0);
+    if (ptep == NULL || !(*ptep & PTE_V))
+    {
+        return;
+    }
+
+    struct Page *page = pte2page(*ptep);
+    *ptep = 0;
+    if (page_ref_dec(page) == 0)
+    {
+        free_page(page);
+    }
+    tlb_invalidate(pgdir, la);
+}
 
 
 
