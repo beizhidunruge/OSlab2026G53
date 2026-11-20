@@ -1,8 +1,10 @@
 # Lab4 提示词记录
+
 ## 功能模块一：虚拟内存页操作功能
 
 **负责人：** 2412604-刘泽民
 
+````markdown
 [PROMPT]
 
 **任务**：修改 `kern/mm/pmm.c`，实现虚拟内存页操作功能，包括建立、更新和撤销虚拟地址到物理页的映射，保证页表项、物理页引用计数和 TLB 状态一致。
@@ -100,6 +102,7 @@ void page_remove(pde_t *pgdir, uintptr_t la);(kern/mm/pmm.c)
 ### 3. 验证要求
 
 不得修改测试代码
+````
 
 ---
 
@@ -107,6 +110,7 @@ void page_remove(pde_t *pgdir, uintptr_t la);(kern/mm/pmm.c)
 
 **负责人：** 2414034-丁欣怡
 
+````markdown
 [PROMPT]
 
 **任务**：实现 lab4/code/kern/process/proc.c 中 function2 的六个函数，创建共享内核地址空间的 idle/init 内核线程。
@@ -144,6 +148,7 @@ void proc_init(void);
 6. proc_init：启动时只调用一次；初始化全局链表和哈希表。idle 使用 bootstack、PID0、RUNNABLE、need_resched=1，parent/mm/tf=NULL，runs/flags/context 初值为零；设 current=idle 并计数，但 idle 不加入普通链表和哈希。通过 kernel_thread(init_main,"Hello world!!",0) 创建 PID1，find_proc 后命名 init；创建失败 panic。
 
 验收应分清模块编译和整机运行；整合后使用原测试验证 Process Create，并与 C 检查完整首次恢复链，不修改测试判据。
+````
 
 ---
 
@@ -151,6 +156,7 @@ void proc_init(void);
 
 **负责人：** 2412591-贺翰林
 
+````markdown
 [PROMPT]
 
 **任务**：修改 `kern/process/switch.S`、`kern/process/proc.c`、`kern/schedule/sched.c`，
@@ -186,3 +192,4 @@ void cpu_idle(void);
    环形查找可运行进程，跳过 `idleproc` 作为普通候选；找不到时以 idle 为保底，
    增加目标进程的 `runs`，必要时调用 `proc_run`。
 4. `cpu_idle` 不返回；仅在 `need_resched` 为真时调用 `schedule`，否则继续空转。
+````
