@@ -33,12 +33,77 @@ void proc_init(void);
 
 [SPECIFICATION]
 
-1. alloc_proc：内存失败返回 NULL；成功清零 PCB，设置 UNINIT、pid=-1、pgdir=boot_pgdir_pa 并初始化链表节点，不登记、不唤醒。
-2. copy_mm：前提 current 有效且 mm=NULL，断言该约束，子线程 mm=NULL，返回零；不取得用户地址空间资源。
-3. copy_thread：前提子线程已分配内核栈且 tf 有效；在 kstack+KSTACKSIZE-sizeof(trapframe) 放置现场副本，禁止保存局部模板的指针；a0=0；恢复 sp 使用非零 esp，否则为 tf 地址；context.ra=forkret，context.sp=tf。
-4. do_fork：前提 current/tf 有效；检查进程上限，依次分配 PCB、设置 parent、分配栈、copy_mm、copy_thread；登记临界区保存并恢复原中断状态，复查上限，分配唯一 PID，挂入哈希与链表，增加计数，最后唤醒。成功返回 PID；上限返回 -E_NO_FREE_PROC，内存不足返回 -E_NO_MEM；失败逆序释放已占用资源，不留下全局登记。
-5. kernel_thread：清零临时 tf，s0=fn、s1=arg、epc=kernel_thread_entry；status 基于当前 sstatus 设置 SPP/SPIE，清除 SIE；调用 do_fork(clone_flags|CLONE_VM,0,&tf)，传播返回值。
-6. proc_init：启动时只调用一次；初始化全局链表和哈希表。idle 使用 bootstack、PID0、RUNNABLE、need_resched=1，parent/mm/tf=NULL，runs/flags/context 初值为零；设 current=idle 并计数，但 idle 不加入普通链表和哈希。通过 kernel_thread(init_main,"Hello world!!",0) 创建 PID1，find_proc 后命名 init；创建失败 panic。
+### 1. alloc_proc
+
+**Pre-Condition**：内核动态内存分配器可用，启动页表物理地址 `boot_pgdir_pa` 已初始化。
+
+**Post-Condition**：返回安全初始化但尚未登记的 PCB，或者在分配失败时返回 `NULL`，不改变进程管理全局状态。
+
+**Case 1**：分配成功时，状态为 `PROC_UNINIT`，PID 为 -1，`pgdir` 为 `boot_pgdir_pa`；运行次数、重调度标记、内核栈地址、标志、context 和名称清零，parent/mm/tf 为空，链表节点初始化。此时线程不可被调度。
+
+**Case 2**：分配失败时返回 `NULL`，不增加进程计数、不加入链表或哈希表。
+
+**Requirements**：不在此函数分配内核栈、分配正式 PID 或唤醒线程。
+
+### 2. copy_mm
+
+**Pre-Condition**：`current` 和目标 PCB 有效，当前创建的是内核线程，`current->mm == NULL`。
+
+**Post-Condition**：目标线程的 `mm` 保持 `NULL`，共享启动内核页表，不取得用户地址空间资源，返回 0。
+
+**Requirements**：使用断言检查当前线程没有用户地址空间的约束；保留 `clone_flags` 参数和函数签名供后续实验扩展，不实现用户地址空间复制。
+
+### 3. copy_thread
+
+**Pre-Condition**：目标 PCB 已拥有大小为 `KSTACKSIZE` 的独立内核栈，输入 `tf` 指向完整可读的 Trap frame；非零 `esp` 是调用者提供的有效恢复栈地址。
+
+**Post-Condition**：目标线程拥有自己的 Trap frame 副本和可供首次调度恢复的 context，输入现场不被修改。
+
+**Case 1**：`esp == 0` 时，将 Trap frame 放在内核栈顶减去其结构体大小的位置，复制输入现场，将子线程返回寄存器 `a0` 设为 0，恢复栈指针设为该 Trap frame 地址。
+
+**Case 2**：`esp != 0` 时，Trap frame 仍在子线程自己的内核栈中，但其恢复栈指针使用传入的 `esp`；其他现场构造规则与 Case 1 相同。
+
+**Requirements**：`context.ra` 指向 `forkret`，`context.sp` 指向子线程的 Trap frame；满足 RV64 栈对齐要求。context 内嵌于 PCB，不能把临时模板地址作为子线程长期使用的现场地址。
+
+### 4. do_fork
+
+**Pre-Condition**：进程管理链表和哈希表已初始化，`current`、输入 `tf` 有效，当前线程满足共享内核地址空间的约束，内存分配接口可用。
+
+**Post-Condition**：成功返回唯一的正 PID，新增一个现场完整的可运行子线程；失败返回负错误码，释放本次已分配资源，不留下全局登记或错误的进程计数。
+
+**Case 1**：资源充足且未达到进程数上限时，为子线程准备 PCB、独立内核栈、地址空间约定和首次执行现场，父线程为 `current`；登记唯一 PID，加入哈希表及进程链表，计数增加一次，最后唤醒为 `PROC_RUNNABLE`，返回子线程 PID。
+
+**Case 2**：创建开始时或登记前复查发现进程数已达 `MAX_PROCESS`，返回 `-E_NO_FREE_PROC`；若已取得资源，释放这些资源，不登记线程。
+
+**Case 3**：PCB 或内核栈分配失败，返回 `-E_NO_MEM`，只释放已经成功取得的资源；不得释放尚未分配的内核栈。
+
+**Case 4**：地址空间准备接口返回错误时，传播该错误码，逆序释放已分配的内核栈和 PCB。当前 `copy_mm` 不取得额外资源；后续扩展时必须同步扩展回滚责任。
+
+**Requirements**：资源和现场准备完成后才能发布线程。PID 分配、链表及哈希登记、计数更新和唤醒在保存原中断状态的临界区完成，退出时恢复原状态；不得无条件开中断。该约束针对当前单 hart 实验，不宣称提供多核互斥。
+
+### 5. kernel_thread
+
+**Pre-Condition**：`fn` 是有效的内核线程入口，参数 `arg` 在函数使用期间有效，当前线程与内存管理环境满足 `do_fork` 的前置条件。
+
+**Post-Condition**：成功时返回新线程 PID，线程首次执行时能够进入 `fn(arg)`；失败时原样返回创建流程的负错误码。
+
+**Case 1**：构造清零的临时 Trap frame，`s0` 保存函数入口，`s1` 保存参数，`epc` 指向 `kernel_thread_entry`；通过共享地址空间的创建路径完成线程创建，使用 `clone_flags | CLONE_VM` 和零恢复栈参数。
+
+**Case 2**：创建流程失败时直接传播错误，不留下指向局部 Trap frame 的持久引用。
+
+**Requirements**：初始 status 基于当前 sstatus，设置 SPP、SPIE 并清除 SIE，使首次 sret 返回 S 模式并按约定恢复中断使能；本函数构造现场，不直接调用线程入口代替调度。
+
+### 6. proc_init
+
+**Pre-Condition**：在内核启动初始化阶段调用一次；物理内存、动态分配器、启动页表和 `bootstack` 可用，尚未对外提供线程调度。
+
+**Post-Condition**：管理链表及哈希表可用，`current == idleproc`，idle 和 init 均已正确初始化；启动创建失败时明确 panic，不继续使用无效对象。
+
+**Case 1**：初始化成功时，idle 的 PID 为 0、状态为 `PROC_RUNNABLE`、栈为 `bootstack`、`need_resched=1`，parent/mm/tf 为空，runs/flags/context 保持零初值。idle 计入进程数但不加入普通链表及哈希表。创建以 `init_main` 为入口、以 `"Hello world!!"` 为参数的 PID 1 线程，令其父线程为 idle，并设置名称 `"init"`。
+
+**Case 2**：idle PCB 分配失败，或 init 创建失败时 panic；成功返回 PID 后应能查到对应的 init PCB，并检查其 PID 为 1。
+
+**Requirements**：idle 复用已有执行流，不额外分配其运行栈；名称接口使用补零的足够长度数组。保持 `forkret → forkrets → __trapret → kernel_thread_entry` 首次执行约定，不在初始化阶段直接执行 `init_main`。
 
 验收应分清模块编译和整机运行；整合后使用原测试验证 Process Create，并与 C 检查完整首次恢复链，不修改测试判据。
 
