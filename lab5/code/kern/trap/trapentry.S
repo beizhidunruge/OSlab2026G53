@@ -66,8 +66,56 @@ _save_context:
     .endm
 
     .macro RESTORE_ALL
+    LOCAL _save_kernel_sp
+    LOCAL _restore_context
 
-    #lab3：填写你在lab3中实现的代码，并进行修改补充
+    LOAD s1, 32*REGBYTES(sp)
+    LOAD s2, 33*REGBYTES(sp)
+
+    andi s0, s1, SSTATUS_SPP     # 可以通过 SSTATUS_SPP 的值判断之前是用户态还是内核态
+    bnez s0, _restore_context
+
+_save_kernel_sp:
+    # Save unwound kernel stack pointer in sscratch
+    addi s0, sp, 36 * REGBYTES
+    csrw sscratch, s0
+_restore_context:
+    csrw sstatus, s1
+    csrw sepc, s2
+
+    # restore x registers
+    LOAD x1, 1*REGBYTES(sp)
+    LOAD x3, 3*REGBYTES(sp)
+    LOAD x4, 4*REGBYTES(sp)
+    LOAD x5, 5*REGBYTES(sp)
+    LOAD x6, 6*REGBYTES(sp)
+    LOAD x7, 7*REGBYTES(sp)
+    LOAD x8, 8*REGBYTES(sp)
+    LOAD x9, 9*REGBYTES(sp)
+    LOAD x10, 10*REGBYTES(sp)
+    LOAD x11, 11*REGBYTES(sp)
+    LOAD x12, 12*REGBYTES(sp)
+    LOAD x13, 13*REGBYTES(sp)
+    LOAD x14, 14*REGBYTES(sp)
+    LOAD x15, 15*REGBYTES(sp)
+    LOAD x16, 16*REGBYTES(sp)
+    LOAD x17, 17*REGBYTES(sp)
+    LOAD x18, 18*REGBYTES(sp)
+    LOAD x19, 19*REGBYTES(sp)
+    LOAD x20, 20*REGBYTES(sp)
+    LOAD x21, 21*REGBYTES(sp)
+    LOAD x22, 22*REGBYTES(sp)
+    LOAD x23, 23*REGBYTES(sp)
+    LOAD x24, 24*REGBYTES(sp)
+    LOAD x25, 25*REGBYTES(sp)
+    LOAD x26, 26*REGBYTES(sp)
+    LOAD x27, 27*REGBYTES(sp)
+    LOAD x28, 28*REGBYTES(sp)
+    LOAD x29, 29*REGBYTES(sp)
+    LOAD x30, 30*REGBYTES(sp)
+    LOAD x31, 31*REGBYTES(sp)
+    # restore sp last
+    LOAD x2, 2*REGBYTES(sp)      # 如果是用户态产生的中断，此时 sp 恢复为用户栈指针
     .endm
 
     .globl __alltraps
@@ -76,6 +124,8 @@ __alltraps:
 
     #lab3:填写你在lab3中实现的代码
     # sp should be the same as before "jal trap"
+    move a0, sp
+    jal trap
 
     .globl __trapret
 __trapret:
