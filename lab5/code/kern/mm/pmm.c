@@ -88,6 +88,71 @@ size_t nr_free_pages(void)
 }
 
 //lab2 请补充你在lab2中的代码
+static void page_init(void) {
+    extern char end[];
+    const uint64_t mem_base = get_memory_base();
+    const uint64_t mem_size = get_memory_size();
+
+    /* nbase and the boot page table describe QEMU virt's fixed DRAM base. */
+    if (mem_base != DRAM_BASE || mem_size == 0 ||
+        mem_size > (uint64_t)-1 - mem_base) {
+        panic("page_init: invalid DTB memory range");
+    }
+    const uint64_t mem_end = mem_base + mem_size;
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+    // uintptr_t maxpa = mem_end < PHYSICAL_MEMORY_END ?
+                    //   mem_end : PHYSICAL_MEMORY_END;
+    uintptr_t maxpa = mem_end;
+    const uintptr_t mapped_end = KERNTOP - va_pa_offset;
+    if (maxpa > mapped_end) {
+        maxpa = mapped_end;
+    }
+    maxpa = ROUNDDOWN(maxpa, PGSIZE);
+    // if (maxpa <= KERNEL_BEGIN_PADDR || (uintptr_t)end < KERNBASE ||
+    if (maxpa <= KERNBASE - va_pa_offset || (uintptr_t)end < KERNBASE ||
+        (uintptr_t)end >= KERNTOP) {
+        panic("page_init: RAM does not contain the kernel");
+    }
+
+    npage = PPN(maxpa);  /* absolute physical-page-number upper bound */
+    const size_t count = npage - nbase;
+    const uintptr_t pages_va = ROUNDUP((uintptr_t)end, PGSIZE);
+    const uintptr_t pages_pa = PADDR(pages_va);
+    /* Subtraction/division checks avoid overflowing an array-end calculation. */
+    if (pages_pa > maxpa || count > (maxpa - pages_pa) / sizeof(struct Page)) {
+        panic("page_init: RAM too small for Page descriptors");
+    }
+    const size_t descriptor_bytes = count * sizeof(struct Page);
+    const uintptr_t freemem = ROUNDUP(pages_pa + descriptor_bytes, PGSIZE);
+    pages = (struct Page *)pages_va;
+
+    for (size_t i = 0; i < count; ++i) {
+        struct Page *p = &pages[i];
+        p->flags = 0;
+        SetPageReserved(p);
+        set_page_ref(p, 0);
+        p->property = 0;
+        list_init(&p->page_link);
+    }
+
+    cprintf("physical memory map (DTB): [0x%016lx, 0x%016lx)\n",
+            mem_base, mem_end);
+    cprintf("managed memory: [0x%016lx, 0x%016lx), npage=0x%lx\n",
+            mem_base, maxpa, npage);
+    cprintf("Page descriptors: VA=0x%016lx, PA=0x%016lx, count=%lu, bytes=%lu\n",
+            pages_va, pages_pa, count, descriptor_bytes);
+    cprintf("free memory: [0x%016lx, 0x%016lx), pages=%lu\n",
+            freemem, maxpa, freemem < maxpa ? (maxpa - freemem) / PGSIZE : 0);
+    /* Never pass an empty range to a manager (First-Fit asserts n > 0). */
+    if (freemem < maxpa) {
+        init_memmap(pa2page(freemem), (maxpa - freemem) / PGSIZE);
+    }
+}
+
+static void enable_paging(void)
+{
+    write_csr(satp, 0x8000000000000000 | (boot_pgdir_pa >> RISCV_PGSHIFT));
+}
 
 // boot_map_segment - setup&enable the paging mechanism
 // parameters
@@ -322,6 +387,72 @@ void exit_range(pde_t *pgdir, uintptr_t start, uintptr_t end)
 
 
 //lab4 请补充你在lab4中的代码
+//LAB4 function1 2412604
+// page_insert - map la to page with permissions perm, replacing any existing
+// mapping. Returns 0 on success, -E_NO_MEM if a middle-level table cannot be
+// allocated (in which case the original page tables are left untouched).
+int page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm)
+{
+    // Record whether the first-level table already exists, so that a page
+    // table page newly attached by get_pte() can be reclaimed on failure.
+    pde_t *pdep1 = &pgdir[PDX1(la)];
+    pde_t pde1_old = *pdep1;
+
+    pte_t *ptep = get_pte(pgdir, la, 1);
+    if (ptep == NULL)
+    {
+        // Restore the entry exactly as it was if get_pte() attached a new
+        // first-level table page before failing to allocate the next level.
+        if (!(pde1_old & PTE_V) && (*pdep1 & PTE_V))
+        {
+            struct Page *pt = pde2page(*pdep1);
+            *pdep1 = pde1_old;
+            free_page(pt);
+        }
+        return -E_NO_MEM;
+    }
+
+    if (*ptep & PTE_V)
+    {
+        struct Page *old = pte2page(*ptep);
+        // Re-inserting the same page only updates permissions.
+        if (old != page)
+        {
+            page_ref_inc(page);
+            if (page_ref_dec(old) == 0)
+            {
+                free_page(old);
+            }
+        }
+    }
+    else
+    {
+        page_ref_inc(page);
+    }
+    *ptep = pte_create(page2ppn(page), perm);
+    tlb_invalidate(pgdir, la);
+    return 0;
+}
+
+// page_remove - undo the mapping at la, dropping the page reference and
+// releasing the physical page when it is no longer mapped anywhere.
+void page_remove(pde_t *pgdir, uintptr_t la)
+{
+    // Never create middle-level tables for an address that may not be mapped.
+    pte_t *ptep = get_pte(pgdir, la, 0);
+    if (ptep == NULL || !(*ptep & PTE_V))
+    {
+        return;
+    }
+
+    struct Page *page = pte2page(*ptep);
+    *ptep = 0;
+    if (page_ref_dec(page) == 0)
+    {
+        free_page(page);
+    }
+    tlb_invalidate(pgdir, la);
+}
 
 
 // invalidate a TLB entry, but only if the page tables being

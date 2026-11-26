@@ -81,10 +81,121 @@ static int nr_process = 0;
 void kernel_thread_entry(void);
 void forkrets(struct trapframe *tf);
 void switch_to(struct context *from, struct context *to);
+static struct proc_struct *alloc_proc(void);
 
 //lab4 请补充你在lab4中的代码
+// do_exit - called by sys_exit
+//   1. call exit_mmap & put_pgdir & mm_destroy to free the almost all memory space of process
+//   2. set process' state as PROC_ZOMBIE, then call wakeup_proc(parent) to ask parent reclaim itself.
+//   3. call scheduler to switch to other process
+int do_exit(int error_code)
+{
+    panic("process exit!!.\n");
+}
+
+// init_main - the second kernel thread used to create user_main kernel threads
+static int
+init_main(void *arg)
+{
+    cprintf("this initproc, pid = %d, name = \"%s\"\n", current->pid, get_proc_name(current));
+    cprintf("To U: \"%s\".\n", (const char *)arg);
+    cprintf("To U: \"en.., Bye, Bye. :)\"\n");
+    return 0;
+}
+
+void
+proc_init(void)
+{
+    int i, pid;
+    // set_proc_name copies PROC_NAME_LEN bytes, so supply padded buffers.
+    static const char idle_name[PROC_NAME_LEN + 1] = "idle";
+    static const char init_name[PROC_NAME_LEN + 1] = "init";
+    list_init(&proc_list);
+    for (i = 0; i < HASH_LIST_SIZE; i++) {
+        list_init(&hash_list[i]);
+    }
+    nr_process = 0;
+    idleproc = alloc_proc();
+    if (idleproc == NULL) {
+        panic("cannot allocate idleproc.\n");
+    }
+    idleproc->pid = 0;
+    idleproc->state = PROC_RUNNABLE;
+    idleproc->kstack = (uintptr_t)bootstack;
+    idleproc->need_resched = 1;
+    set_proc_name(idleproc, idle_name);
+    current = idleproc;
+    nr_process++;
+    // Idle is the scheduler's fallback, not a normal proc_list/hash entry.
+    pid = kernel_thread(init_main, "Hello world!!", 0);
+    if (pid <= 0) {
+        panic("cannot create initproc: %d.\n", pid);
+    }
+    initproc = find_proc(pid);
+    assert(initproc != NULL && initproc->pid == 1);
+    set_proc_name(initproc, init_name);
+}
+
+
+//LAB4 function3 2412591
+
+// proc_run - 让进程 proc 在 CPU 上运行
+void proc_run(struct proc_struct *proc)
+{
+    if (proc == current)
+    {
+        return;
+    }
+
+    bool intr_flag;
+    struct proc_struct *prev = current;
+    struct proc_struct *next = proc;
+
+    local_intr_save(intr_flag);
+    {
+        current = proc;
+
+        // 内核线程共享启动页表，因此 pgdir 为空时回退到 boot_pgdir_pa。
+        // pgdir 必须是物理地址，因为 satp 中保存的是页表根节点的物理页号。
+        uintptr_t pgdir = next->pgdir != 0 ? next->pgdir : boot_pgdir_pa;
+        write_csr(satp, ((uint64_t)SATP_MODE_SV39 << 60) |
+                            (pgdir >> RISCV_PGSHIFT));
+        flush_tlb();
+
+        switch_to(&(prev->context), &(next->context));
+    }
+    local_intr_restore(intr_flag);
+}
+
+// cpu_idle - 空闲线程，需要重新调度时主动让出 CPU
+void cpu_idle(void)
+{
+    while (1)
+    {
+        if (current->need_resched)
+        {
+            schedule();
+        }
+    }
+}
 
 //lab5 function2 YOUR CODE update alloc_proc
+//LAB4 function2 2414034
+
+static struct proc_struct *
+alloc_proc(void)
+{
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    if (proc != NULL) {
+        memset(proc, 0, sizeof(*proc));
+        proc->state = PROC_UNINIT;
+        proc->pid = -1;
+        proc->pgdir = boot_pgdir_pa;
+        list_init(&proc->list_link);
+        list_init(&proc->hash_link);
+    }
+    return proc;
+}
 
 
 // set_proc_name - set the name of proc
@@ -229,6 +340,18 @@ find_proc(int pid)
 }
 
 //lab5 function2 YOUR CODE update kernel_thread
+int
+kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)
+{
+    struct trapframe tf;
+    memset(&tf, 0, sizeof(tf));
+    tf.gpr.s0 = (uintptr_t)fn;
+    tf.gpr.s1 = (uintptr_t)arg;
+    tf.epc = (uintptr_t)kernel_thread_entry;
+    tf.status = (read_csr(sstatus) | SSTATUS_SPP | SSTATUS_SPIE)
+                & ~SSTATUS_SIE;
+    return do_fork(clone_flags | CLONE_VM, 0, &tf);
+}
 
 
 // setup_kstack - alloc pages with size KSTACKPAGE as process kernel stack
@@ -275,13 +398,77 @@ put_pgdir(struct mm_struct *mm)
 }
 
 //lab5 function3 YOUR CODE update copy_mm
+static int
+copy_mm(uint32_t clone_flags, struct proc_struct *proc)
+{
+    // Lab4 only creates kernel threads sharing the boot page table.
+    (void)clone_flags;
+    assert(current->mm == NULL);
+    proc->mm = NULL;
+    return 0;
+}
 
 
 
 //lab5 function2 YOUR CODE
+static void
+copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf)
+{
+    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE
+                                  - sizeof(struct trapframe));
+    *proc->tf = *tf;
+    proc->tf->gpr.a0 = 0;
+    proc->tf->gpr.sp = esp != 0 ? esp : (uintptr_t)proc->tf;
+    proc->context.ra = (uintptr_t)forkret;
+    proc->context.sp = (uintptr_t)proc->tf;
+}
 
 
 //lab5 function3 YOUR CODE
+int
+do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
+{
+    int ret = -E_NO_FREE_PROC;
+    struct proc_struct *proc;
+    bool intr_flag;
+    if (nr_process >= MAX_PROCESS) {
+        return ret;
+    }
+    ret = -E_NO_MEM;
+    if ((proc = alloc_proc()) == NULL) {
+        return ret;
+    }
+    proc->parent = current;
+    if ((ret = setup_kstack(proc)) != 0) {
+        goto bad_proc;
+    }
+    if ((ret = copy_mm(clone_flags, proc)) != 0) {
+        goto bad_kstack;
+    }
+    copy_thread(proc, stack, tf);
+
+    // Publish only a complete thread; preserve the caller's interrupt state.
+    local_intr_save(intr_flag);
+    if (nr_process >= MAX_PROCESS) {
+        local_intr_restore(intr_flag);
+        ret = -E_NO_FREE_PROC;
+        goto bad_kstack;
+    }
+    proc->pid = get_pid();
+    hash_proc(proc);
+    list_add(&proc_list, &proc->list_link);
+    nr_process++;
+    wakeup_proc(proc);
+    ret = proc->pid;
+    local_intr_restore(intr_flag);
+    return ret;
+
+bad_kstack:
+    put_kstack(proc);
+bad_proc:
+    kfree(proc);
+    return ret;
+}
 
 
 //lab5 function4 YOUR CODE
